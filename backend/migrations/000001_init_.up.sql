@@ -1,0 +1,10 @@
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE files (
+id SERIAL PRIMARY KEY,
+original_filename TEXT NOT NULL,
+size BIGINT NOT NULL,
+bucket TEXT NOT NULL,
+object_key TEXT NOT NULL UNIQUE,
+created_at TIMESTAMP DEFAULT now()
+);
