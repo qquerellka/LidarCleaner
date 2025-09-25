@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="
+    default-src 'self' http://localhost:5173;
+    script-src 'self' 'unsafe-eval' http://localhost:5173;
+    style-src 'self' 'unsafe-inline' http://localhost:5173;
+    img-src 'self' data: blob: http://localhost:5173;
+    font-src 'self' data: http://localhost:5173;
+    connect-src 'self' http://localhost:5173 ws://localhost:5173 https:;
+    media-src 'self' blob: http://localhost:5173;
+    object-src 'none';
+    frame-ancestors 'none';
+    base-uri 'self';
+    form-action 'self';
+  "
+    />
+    <title>frontend</title>
+    <script type="module" crossorigin src="/assets/index-KkDr_uKV.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-CwbEao-v.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
+</html>
