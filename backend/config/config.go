@@ -1,10 +1,11 @@
 package config
 
 import (
-	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
+
+	"github.com/joho/godotenv"
 )
 
 // Config структура, обозначающая структуру .env файла
@@ -16,6 +17,9 @@ type Config struct {
 	MinioRootPassword string // Пароль для доступа к Minio
 	MinioUseSSL       bool
 	DatabaseURL       string
+	RabbitMQURL       string // URL для подключения к RabbitMQ
+	RabbitMQExchange  string // Имя exchange в RabbitMQ
+	RabbitMQQueue     string // Имя очереди в RabbitMQ
 }
 
 var AppConfig *Config
@@ -32,12 +36,15 @@ func LoadConfig() {
 	AppConfig = &Config{
 		Port: getEnv("PORT", "8000"),
 
-		MinioEndpoint:     getEnv("MINIO_ENDPOINT", "minio:9000"),
+		MinioEndpoint:     getEnv("MINIO_ENDPOINT", "localhost:9000"),
 		BucketName:        getEnv("MINIO_BUCKET_NAME", "defaultbucket"),
 		MinioRootUser:     getEnv("MINIO_ROOT_USER", "root"),
 		MinioRootPassword: getEnv("MINIO_ROOT_PASSWORD", "minio_password"),
 		MinioUseSSL:       getEnvAsBool("MINIO_USE_SSL", false),
 		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"),
+		RabbitMQURL:       getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
+		RabbitMQExchange:  getEnv("RABBITMQ_EXCHANGE", "pcd_files"),
+		RabbitMQQueue:     getEnv("RABBITMQ_QUEUE", "file_metadata_queue"),
 	}
 }
 

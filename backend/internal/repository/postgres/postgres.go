@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"lct/config"
+	"lct/internal/repository/schema"
 	"log"
 	"time"
 )
@@ -49,4 +50,26 @@ func (ps *PostgresStorage) SaveMetaData(ctx *context.Context, fileName string, f
 
 	log.Printf("Метаданные сохранены в БД, id=%d", ID)
 	return ID, nil
+}
+
+func (ps *PostgresStorage) GetMetaDataByID(ctx *context.Context, id int64) (*schema.FileMetadata, error) {
+	query := `SELECT id, original_filename, object_key 
+	          FROM files WHERE id = $1`
+
+	var metadata schema.FileMetadata
+
+	err := ps.db.QueryRowContext(*ctx, query, id).Scan(
+		&metadata.ID,
+		&metadata.OriginalFilename,
+		&metadata.ObjectKey,
+	)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("файл с id %d не найден", id)
+		}
+		return nil, fmt.Errorf("ошибка при получении метаданных: %w", err)
+	}
+
+	log.Printf("Метаданные получены из БД для id=%d", id)
+	return &metadata, nil
 }

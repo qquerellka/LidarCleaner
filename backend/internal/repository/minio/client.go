@@ -24,37 +24,6 @@ func NewMinioClient() Client {
 
 // InitMinio подключается к Minio и создает бакет, если не существует
 // Бакет - это контейнер для хранения объектов в Minio. Он представляет собой пространство имен, в котором можно хранить и организовывать файлы и папки.
-//func (m *minioClient) InitMinio() error {
-//	// Создание контекста с возможностью отмены операции
-//	ctx := context.Background()
-//
-//	// Подключение к Minio с использованием имени пользователя и пароля
-//	client, err := minio.New(config.AppConfig.MinioEndpoint, &minio.Options{
-//		Creds:  credentials.NewStaticV4(config.AppConfig.MinioRootUser, config.AppConfig.MinioRootPassword, ""),
-//		Secure: config.AppConfig.MinioUseSSL,
-//	})
-//	if err != nil {
-//		return err
-//	}
-//
-//	// Установка подключения Minio
-//	m.mc = client
-//
-//	// Проверка наличия бакета и его создание, если не существует
-//	exists, err := m.mc.BucketExists(ctx, config.AppConfig.BucketName)
-//	if err != nil {
-//		return err
-//	}
-//	if !exists {
-//		err := m.mc.MakeBucket(ctx, config.AppConfig.BucketName, minio.MakeBucketOptions{})
-//		if err != nil {
-//			return err
-//		}
-//	}
-//
-//	return nil
-//}
-
 func (m *minioClient) InitMinio() error {
 	ctx := context.Background()
 
@@ -100,7 +69,7 @@ func (m *minioClient) InitMinio() error {
 // Метод принимает структуру fileData, которая содержит имя файла и его данные.
 // В случае успешной загрузки данных в бакет, метод возвращает nil, иначе возвращает ошибку.
 // Все операции выполняются в контексте задачи.
-func (m *minioClient) CreateOne(file FileDataType, objectID string) (string, error) {
+func (m *minioClient) CreateOne(file FileDataType, objectID string) (*minio.Object, error) {
 
 	// Создание потока данных для загрузки в бакет Minio.
 	reader := bytes.NewReader(file.Data)
@@ -108,16 +77,29 @@ func (m *minioClient) CreateOne(file FileDataType, objectID string) (string, err
 	// Загрузка данных в бакет Minio с использованием контекста для возможности отмены операции.
 	_, err := m.mc.PutObject(context.Background(), config.AppConfig.BucketName, objectID, reader, int64(len(file.Data)), minio.PutObjectOptions{})
 	if err != nil {
-		return "", fmt.Errorf("ошибка при создании объекта %s: %v", file.FileName, err)
+		return nil, fmt.Errorf("ошибка при создании объекта %s: %v", file.FileName, err)
 	}
 
 	// Получение URL для загруженного объекта
-	url, err := m.mc.PresignedGetObject(context.Background(), config.AppConfig.BucketName, objectID, time.Second*24*60*60, nil)
+	//url, err := m.mc.PresignedGetObject(context.Background(),
+	//	config.AppConfig.BucketName,
+	//	objectID,
+	//	time.Hour*24,
+	//	nil,
+	//)
+	//if err != nil {
+	//	return "", fmt.Errorf("ошибка при создании URL для объекта %s: %v", file.FileName, err)
+	//}
+
+	object, err := m.mc.GetObject(context.Background(), config.AppConfig.BucketName, objectID, minio.GetObjectOptions{})
 	if err != nil {
-		return "", fmt.Errorf("ошибка при создании URL для объекта %s: %v", file.FileName, err)
+		//http.Error(w, "Ошибка при получении файла: "+err.Error(), http.StatusInternalServerError)
+		return nil, fmt.Errorf("ошибка при создании URL для объекта %s: %v", file.FileName, err)
 	}
-	log.Println("файл загружен в minio", url)
-	return url.String(), nil
+	//defer object.Close()
+	//Внешний MinIO клиент для генерации presigned URL (использует внешний адрес)
+	log.Println("файл загружен в minio")
+	return object, nil
 }
 
 // GetOne получает один объект из бакета Minio по его идентификатору.
@@ -232,4 +214,19 @@ func (m *minioClient) DeleteMany(objectIDs []string) error {
 	}
 
 	return nil // Возврат nil, если ошибок не возникло
+}
+
+func (m *minioClient) GetMinioFileLink(objectID string) (string, error) {
+	url, err := m.mc.PresignedGetObject(
+		context.Background(),
+		config.AppConfig.BucketName, // имя бакета в MinIO
+		objectID,                    // ключ объекта (minio_key)
+		time.Second*24*60*60,        // время жизни ссылки (в твоём случае сутки)
+		nil,                         // можно передать кастомные query-параметры, тут пусто
+	)
+	if err != nil {
+		return "", fmt.Errorf("ошибки при генерации ссылки на файл minio: %v", err)
+	}
+
+	return url.String(), err
 }

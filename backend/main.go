@@ -1,16 +1,17 @@
 package main
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/golang-migrate/migrate/v4"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"lct/config"
 	"lct/internal/handlers"
 	"lct/internal/repository/minio"
 	"lct/internal/repository/postgres"
-	"lct/internal/service/pcd"
+	"lct/internal/service/usecase"
 	"log"
+
+	"github.com/gin-gonic/gin"
+	"github.com/golang-migrate/migrate/v4"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
 )
 
 func main() {
@@ -43,13 +44,48 @@ func main() {
 		log.Fatalf("error init postgres storage: %v", err)
 	}
 
+	// Инициализация RabbitMQ клиента
+	//rabbitmqConfig := rabbitmq.Config{
+	//	URL:      config.AppConfig.RabbitMQURL,
+	//	Exchange: config.AppConfig.RabbitMQExchange,
+	//	Queue:    config.AppConfig.RabbitMQQueue,
+	//}
+	//rabbitmqClient, err := rabbitmq.NewClient(rabbitmqConfig)
+	//if err != nil {
+	//	log.Fatalf("Ошибка инициализации RabbitMQ клиента: %v", err)
+	//}
+	//defer rabbitmqClient.Close()
+
+	////Инициализация RabbitMQ consumer
+	//rabbitmqConsumer, err := rabbitmq.NewConsumer(rabbitmqConfig)
+	//if err != nil {
+	//	log.Fatalf("Ошибка инициализации RabbitMQ consumer: %v", err)
+	//}
+	//defer rabbitmqConsumer.Close()
+
+	// Запуск consumer в отдельной горутине
+	//ctx := context.Background()
+	//if err := rabbitmqConsumer.StartConsuming(ctx); err != nil {
+	//	log.Fatalf("Ошибка запуска RabbitMQ consumer: %v", err)
+	//}
+
 	//Инициализация сервисного слоя
-	service := pcd.NewService(postgresRepo, minioClient)
+	service := usecase.NewService(postgresRepo, minioClient)
 
 	// Инициализация маршрутизатора Gin
 	router := gin.Default()
 	h := handlers.NewMinioHandler(service) // условно
 	h.RegisterRoutes(router)
+
+	//TODO: Сделать GetMinioFileLink в репозитории
+	//TODO: Разобраться с rabbinmq в main  -  Главное чтобы работало, перенесу по слоям потом
+
+	go func() {
+		err := h.StartRabbitWorker()
+		if err != nil {
+			log.Fatalf("Failed to start RabbitMQ worker: %v", err)
+		}
+	}()
 
 	// Запуск сервера Gin
 	port := config.AppConfig.Port // Мы берем

@@ -1,6 +1,8 @@
 package handlers
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+)
 
 // RegisterRoutes - метод регистрации всех роутов в системе
 func (h *Handler) RegisterRoutes(router *gin.Engine) {
@@ -10,6 +12,8 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	minioRoutes := router.Group("/files")
 	{
 		minioRoutes.POST("/upload_file", h.CreateOne)
+		//minioRoutes.GET("/metadata/:id", h.GetMetadataAndSendToQueue)
+		minioRoutes.GET("/download/:id", h.GetFileByIDAsync)
 
 		//minioRoutes.GET("/:objectID", h.GetOne)
 		//minioRoutes.GET("/many", h.GetMany)
