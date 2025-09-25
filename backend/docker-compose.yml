@@ -38,12 +38,10 @@ services:
       retries: 5
     restart: unless-stopped
     environment:
-#      MINIO_ENDPOINT: "localhost:9000"
       MINIO_ROOT_USER: "root"
       MINIO_ROOT_PASSWORD: "minio_password"
       MINIO_USE_SSL: "${MINIO_USE_SSL}"
       MINIO_DEFAULT_BUCKETS: "${MINIO_BUCKET_NAME}"
-#      MINIO_SERVER_URL: "localhost:9000"
     networks:
       - app-network
 
@@ -79,18 +77,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - app-network
-
-  nginx_minio:
-    image: nginx:latest
-    container_name: nginx_minio
-    ports:
-      - "9005:9005"  # порт для доступа из браузера
-    volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-    depends_on:
-      - minio
     networks:
       - app-network
 

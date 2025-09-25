@@ -56,7 +56,7 @@ func (m *minioClient) InitMinio() error {
 			}
 		}
 
-		log.Printf("MinIO ещё не готов (попытка %d/10): %v", i+1, err)
+		log.Printf("MinIO ещё не готов (попытка %d/5): %v", i+1, err)
 		time.Sleep(3 * time.Second)
 	}
 
