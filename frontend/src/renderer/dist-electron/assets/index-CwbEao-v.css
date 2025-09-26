@@ -1,0 +1,5 @@
+html, body, #root { height: 100%; margin: 0; background: #0f0f0f; color: #eaeaea; }
+button { padding: 8px 12px; background: #2a2a2a; color: #eaeaea; border: 1px solid #3a3a3a; border-radius: 6px; cursor: pointer; }
+button:hover { filter: brightness(1.1); }
+input[type="range"] { width: 100%; }
+hr { border: 0; border-top: 1px solid #333; }
