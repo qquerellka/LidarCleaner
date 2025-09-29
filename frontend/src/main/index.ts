@@ -13,9 +13,13 @@ let mainWindow: BrowserWindow | null = null;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const log = initLogger();
 
-// single-instance
-if (!app.requestSingleInstanceLock()) {
-  app.quit();
+// single-instance (guarded)
+try {
+  if (!app || typeof app.requestSingleInstanceLock !== "function" || !app.requestSingleInstanceLock()) {
+    app?.quit?.();
+  }
+} catch {
+  // ignore in dev if electron context not fully ready
 }
 
 function registerAllIpc() {
