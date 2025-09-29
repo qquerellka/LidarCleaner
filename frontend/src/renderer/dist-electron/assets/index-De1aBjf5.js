@@ -26726,7 +26726,15 @@ const initialState = {
   colorMode: "vertex",
   fixedColor: "#00ff88",
   showAxes: true,
-  showLight: true
+  showLight: true,
+  showGrid: true,
+  cameraCommand: null,
+  showBBox: false,
+  clippingEnabled: false,
+  clipX: { enabled: false, min: 0, max: 1 },
+  clipY: { enabled: false, min: 0, max: 1 },
+  clipZ: { enabled: false, min: 0, max: 1 },
+  viewPresets: []
 };
 const sceneSlice = createSlice({
   name: "scene",
@@ -26746,6 +26754,47 @@ const sceneSlice = createSlice({
     },
     setShowLight(state, action) {
       state.showLight = action.payload;
+    },
+    setShowGrid(state, action) {
+      state.showGrid = action.payload;
+    },
+    triggerCameraCommand(state, action) {
+      state.cameraCommand = action.payload;
+    },
+    clearCameraCommand(state) {
+      state.cameraCommand = null;
+    },
+    // NEW:
+    setShowBBox(state, action) {
+      state.showBBox = action.payload;
+    },
+    setClippingEnabled(state, action) {
+      state.clippingEnabled = action.payload;
+    },
+    setClipX(state, action) {
+      state.clipX = { ...state.clipX, ...action.payload };
+    },
+    setClipY(state, action) {
+      state.clipY = { ...state.clipY, ...action.payload };
+    },
+    setClipZ(state, action) {
+      state.clipZ = { ...state.clipZ, ...action.payload };
+    },
+    upsertViewPreset(state, action) {
+      const idx = state.viewPresets.findIndex((p) => p.id === action.payload.id);
+      if (idx >= 0) state.viewPresets[idx] = action.payload;
+      else state.viewPresets.push(action.payload);
+      try {
+        localStorage.setItem("pcd_view_presets", JSON.stringify(state.viewPresets));
+      } catch {
+      }
+    },
+    loadViewPresetsFromStorage(state) {
+      try {
+        const raw = localStorage.getItem("pcd_view_presets");
+        if (raw) state.viewPresets = JSON.parse(raw);
+      } catch {
+      }
     }
   }
 });
@@ -26754,7 +26803,17 @@ const {
   setColorMode,
   setFixedColor,
   setShowAxes,
-  setShowLight
+  setShowLight,
+  setShowGrid,
+  triggerCameraCommand,
+  clearCameraCommand,
+  setShowBBox,
+  setClippingEnabled,
+  setClipX,
+  setClipY,
+  setClipZ,
+  upsertViewPreset,
+  loadViewPresetsFromStorage
 } = sceneSlice.actions;
 const sceneReducer = sceneSlice.reducer;
 const store = configureStore({
@@ -26984,6 +27043,7 @@ class EventDispatcher {
   }
 }
 const _lut = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "0a", "0b", "0c", "0d", "0e", "0f", "10", "11", "12", "13", "14", "15", "16", "17", "18", "19", "1a", "1b", "1c", "1d", "1e", "1f", "20", "21", "22", "23", "24", "25", "26", "27", "28", "29", "2a", "2b", "2c", "2d", "2e", "2f", "30", "31", "32", "33", "34", "35", "36", "37", "38", "39", "3a", "3b", "3c", "3d", "3e", "3f", "40", "41", "42", "43", "44", "45", "46", "47", "48", "49", "4a", "4b", "4c", "4d", "4e", "4f", "50", "51", "52", "53", "54", "55", "56", "57", "58", "59", "5a", "5b", "5c", "5d", "5e", "5f", "60", "61", "62", "63", "64", "65", "66", "67", "68", "69", "6a", "6b", "6c", "6d", "6e", "6f", "70", "71", "72", "73", "74", "75", "76", "77", "78", "79", "7a", "7b", "7c", "7d", "7e", "7f", "80", "81", "82", "83", "84", "85", "86", "87", "88", "89", "8a", "8b", "8c", "8d", "8e", "8f", "90", "91", "92", "93", "94", "95", "96", "97", "98", "99", "9a", "9b", "9c", "9d", "9e", "9f", "a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "a9", "aa", "ab", "ac", "ad", "ae", "af", "b0", "b1", "b2", "b3", "b4", "b5", "b6", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "be", "bf", "c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "ca", "cb", "cc", "cd", "ce", "cf", "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "da", "db", "dc", "dd", "de", "df", "e0", "e1", "e2", "e3", "e4", "e5", "e6", "e7", "e8", "e9", "ea", "eb", "ec", "ed", "ee", "ef", "f0", "f1", "f2", "f3", "f4", "f5", "f6", "f7", "f8", "f9", "fa", "fb", "fc", "fd", "fe", "ff"];
+let _seed = 1234567;
 const DEG2RAD = Math.PI / 180;
 const RAD2DEG = 180 / Math.PI;
 function generateUUID() {
@@ -27000,8 +27060,101 @@ function clamp(value, min, max) {
 function euclideanModulo(n, m2) {
   return (n % m2 + m2) % m2;
 }
+function mapLinear(x, a1, a2, b1, b2) {
+  return b1 + (x - a1) * (b2 - b1) / (a2 - a1);
+}
+function inverseLerp(x, y, value) {
+  if (x !== y) {
+    return (value - x) / (y - x);
+  } else {
+    return 0;
+  }
+}
 function lerp(x, y, t) {
   return (1 - t) * x + t * y;
+}
+function damp(x, y, lambda, dt) {
+  return lerp(x, y, 1 - Math.exp(-lambda * dt));
+}
+function pingpong(x, length = 1) {
+  return length - Math.abs(euclideanModulo(x, length * 2) - length);
+}
+function smoothstep(x, min, max) {
+  if (x <= min) return 0;
+  if (x >= max) return 1;
+  x = (x - min) / (max - min);
+  return x * x * (3 - 2 * x);
+}
+function smootherstep(x, min, max) {
+  if (x <= min) return 0;
+  if (x >= max) return 1;
+  x = (x - min) / (max - min);
+  return x * x * x * (x * (x * 6 - 15) + 10);
+}
+function randInt(low, high) {
+  return low + Math.floor(Math.random() * (high - low + 1));
+}
+function randFloat(low, high) {
+  return low + Math.random() * (high - low);
+}
+function randFloatSpread(range) {
+  return range * (0.5 - Math.random());
+}
+function seededRandom(s) {
+  if (s !== void 0) _seed = s;
+  let t = _seed += 1831565813;
+  t = Math.imul(t ^ t >>> 15, t | 1);
+  t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+  return ((t ^ t >>> 14) >>> 0) / 4294967296;
+}
+function degToRad(degrees) {
+  return degrees * DEG2RAD;
+}
+function radToDeg(radians) {
+  return radians * RAD2DEG;
+}
+function isPowerOfTwo(value) {
+  return (value & value - 1) === 0 && value !== 0;
+}
+function ceilPowerOfTwo(value) {
+  return Math.pow(2, Math.ceil(Math.log(value) / Math.LN2));
+}
+function floorPowerOfTwo(value) {
+  return Math.pow(2, Math.floor(Math.log(value) / Math.LN2));
+}
+function setQuaternionFromProperEuler(q, a, b, c, order) {
+  const cos = Math.cos;
+  const sin = Math.sin;
+  const c2 = cos(b / 2);
+  const s2 = sin(b / 2);
+  const c13 = cos((a + c) / 2);
+  const s13 = sin((a + c) / 2);
+  const c1_3 = cos((a - c) / 2);
+  const s1_3 = sin((a - c) / 2);
+  const c3_1 = cos((c - a) / 2);
+  const s3_1 = sin((c - a) / 2);
+  switch (order) {
+    case "XYX":
+      q.set(c2 * s13, s2 * c1_3, s2 * s1_3, c2 * c13);
+      break;
+    case "YZY":
+      q.set(s2 * s1_3, c2 * s13, s2 * c1_3, c2 * c13);
+      break;
+    case "ZXZ":
+      q.set(s2 * c1_3, s2 * s1_3, c2 * s13, c2 * c13);
+      break;
+    case "XZX":
+      q.set(c2 * s13, s2 * s3_1, s2 * c3_1, c2 * c13);
+      break;
+    case "YXY":
+      q.set(s2 * c3_1, c2 * s13, s2 * s3_1, c2 * c13);
+      break;
+    case "ZYZ":
+      q.set(s2 * s3_1, s2 * c3_1, c2 * s13, c2 * c13);
+      break;
+    default:
+      console.warn("THREE.MathUtils: .setQuaternionFromProperEuler() encountered an unknown order: " + order);
+  }
 }
 function denormalize(value, array) {
   switch (array.constructor) {
@@ -27044,7 +27197,248 @@ function normalize(value, array) {
   }
 }
 const MathUtils = {
-  DEG2RAD
+  DEG2RAD,
+  RAD2DEG,
+  /**
+   * Generate a [UUID]{@link https://en.wikipedia.org/wiki/Universally_unique_identifier}
+   * (universally unique identifier).
+   *
+   * @static
+   * @method
+   * @return {string} The UUID.
+   */
+  generateUUID,
+  /**
+   * Clamps the given value between min and max.
+   *
+   * @static
+   * @method
+   * @param {number} value - The value to clamp.
+   * @param {number} min - The min value.
+   * @param {number} max - The max value.
+   * @return {number} The clamped value.
+   */
+  clamp,
+  /**
+   * Computes the Euclidean modulo of the given parameters that
+   * is `( ( n % m ) + m ) % m`.
+   *
+   * @static
+   * @method
+   * @param {number} n - The first parameter.
+   * @param {number} m - The second parameter.
+   * @return {number} The Euclidean modulo.
+   */
+  euclideanModulo,
+  /**
+   * Performs a linear mapping from range `<a1, a2>` to range `<b1, b2>`
+   * for the given value.
+   *
+   * @static
+   * @method
+   * @param {number} x - The value to be mapped.
+   * @param {number} a1 - Minimum value for range A.
+   * @param {number} a2 - Maximum value for range A.
+   * @param {number} b1 - Minimum value for range B.
+   * @param {number} b2 - Maximum value for range B.
+   * @return {number} The mapped value.
+   */
+  mapLinear,
+  /**
+   * Returns the percentage in the closed interval `[0, 1]` of the given value
+   * between the start and end point.
+   *
+   * @static
+   * @method
+   * @param {number} x - The start point
+   * @param {number} y - The end point.
+   * @param {number} value - A value between start and end.
+   * @return {number} The interpolation factor.
+   */
+  inverseLerp,
+  /**
+   * Returns a value linearly interpolated from two known points based on the given interval -
+   * `t = 0` will return `x` and `t = 1` will return `y`.
+   *
+   * @static
+   * @method
+   * @param {number} x - The start point
+   * @param {number} y - The end point.
+   * @param {number} t - The interpolation factor in the closed interval `[0, 1]`.
+   * @return {number} The interpolated value.
+   */
+  lerp,
+  /**
+   * Smoothly interpolate a number from `x` to `y` in  a spring-like manner using a delta
+   * time to maintain frame rate independent movement. For details, see
+   * [Frame rate independent damping using lerp]{@link http://www.rorydriscoll.com/2016/03/07/frame-rate-independent-damping-using-lerp/}.
+   *
+   * @static
+   * @method
+   * @param {number} x - The current point.
+   * @param {number} y - The target point.
+   * @param {number} lambda - A higher lambda value will make the movement more sudden,
+   * and a lower value will make the movement more gradual.
+   * @param {number} dt - Delta time in seconds.
+   * @return {number} The interpolated value.
+   */
+  damp,
+  /**
+   * Returns a value that alternates between `0` and the given `length` parameter.
+   *
+   * @static
+   * @method
+   * @param {number} x - The value to pingpong.
+   * @param {number} [length=1] - The positive value the function will pingpong to.
+   * @return {number} The alternated value.
+   */
+  pingpong,
+  /**
+   * Returns a value in the range `[0,1]` that represents the percentage that `x` has
+   * moved between `min` and `max`, but smoothed or slowed down the closer `x` is to
+   * the `min` and `max`.
+   *
+   * See [Smoothstep]{@link http://en.wikipedia.org/wiki/Smoothstep} for more details.
+   *
+   * @static
+   * @method
+   * @param {number} x - The value to evaluate based on its position between min and max.
+   * @param {number} min - The min value. Any x value below min will be `0`.
+   * @param {number} max - The max value. Any x value above max will be `1`.
+   * @return {number} The alternated value.
+   */
+  smoothstep,
+  /**
+   * A [variation on smoothstep]{@link https://en.wikipedia.org/wiki/Smoothstep#Variations}
+   * that has zero 1st and 2nd order derivatives at x=0 and x=1.
+   *
+   * @static
+   * @method
+   * @param {number} x - The value to evaluate based on its position between min and max.
+   * @param {number} min - The min value. Any x value below min will be `0`.
+   * @param {number} max - The max value. Any x value above max will be `1`.
+   * @return {number} The alternated value.
+   */
+  smootherstep,
+  /**
+   * Returns a random integer from `<low, high>` interval.
+   *
+   * @static
+   * @method
+   * @param {number} low - The lower value boundary.
+   * @param {number} high - The upper value boundary
+   * @return {number} A random integer.
+   */
+  randInt,
+  /**
+   * Returns a random float from `<low, high>` interval.
+   *
+   * @static
+   * @method
+   * @param {number} low - The lower value boundary.
+   * @param {number} high - The upper value boundary
+   * @return {number} A random float.
+   */
+  randFloat,
+  /**
+   * Returns a random integer from `<-range/2, range/2>` interval.
+   *
+   * @static
+   * @method
+   * @param {number} range - Defines the value range.
+   * @return {number} A random float.
+   */
+  randFloatSpread,
+  /**
+   * Returns a deterministic pseudo-random float in the interval `[0, 1]`.
+   *
+   * @static
+   * @method
+   * @param {number} [s] - The integer seed.
+   * @return {number} A random float.
+   */
+  seededRandom,
+  /**
+   * Converts degrees to radians.
+   *
+   * @static
+   * @method
+   * @param {number} degrees - A value in degrees.
+   * @return {number} The converted value in radians.
+   */
+  degToRad,
+  /**
+   * Converts radians to degrees.
+   *
+   * @static
+   * @method
+   * @param {number} radians - A value in radians.
+   * @return {number} The converted value in degrees.
+   */
+  radToDeg,
+  /**
+   * Returns `true` if the given number is a power of two.
+   *
+   * @static
+   * @method
+   * @param {number} value - The value to check.
+   * @return {boolean} Whether the given number is a power of two or not.
+   */
+  isPowerOfTwo,
+  /**
+   * Returns the smallest power of two that is greater than or equal to the given number.
+   *
+   * @static
+   * @method
+   * @param {number} value - The value to find a POT for.
+   * @return {number} The smallest power of two that is greater than or equal to the given number.
+   */
+  ceilPowerOfTwo,
+  /**
+   * Returns the largest power of two that is less than or equal to the given number.
+   *
+   * @static
+   * @method
+   * @param {number} value - The value to find a POT for.
+   * @return {number} The largest power of two that is less than or equal to the given number.
+   */
+  floorPowerOfTwo,
+  /**
+   * Sets the given quaternion from the [Intrinsic Proper Euler Angles]{@link https://en.wikipedia.org/wiki/Euler_angles}
+   * defined by the given angles and order.
+   *
+   * Rotations are applied to the axes in the order specified by order:
+   * rotation by angle `a` is applied first, then by angle `b`, then by angle `c`.
+   *
+   * @static
+   * @method
+   * @param {Quaternion} q - The quaternion to set.
+   * @param {number} a - The rotation applied to the first axis, in radians.
+   * @param {number} b - The rotation applied to the second axis, in radians.
+   * @param {number} c - The rotation applied to the third axis, in radians.
+   * @param {('XYX'|'XZX'|'YXY'|'YZY'|'ZXZ'|'ZYZ')} order - A string specifying the axes order.
+   */
+  setQuaternionFromProperEuler,
+  /**
+   * Normalizes the given value according to the given typed array.
+   *
+   * @static
+   * @method
+   * @param {number} value - The float value in the range `[0,1]` to normalize.
+   * @param {TypedArray} array - The typed array that defines the data type of the value.
+   * @return {number} The normalize value.
+   */
+  normalize,
+  /**
+   * Denormalizes the given value according to the given typed array.
+   *
+   * @static
+   * @method
+   * @param {number} value - The value to denormalize.
+   * @param {TypedArray} array - The typed array that defines the data type of the value.
+   * @return {number} The denormalize (float) value in the range `[0,1]`.
+   */
+  denormalize
 };
 class Vector2 {
   /**
@@ -41004,6 +41398,86 @@ class Spherical {
     return new this.constructor().copy(this);
   }
 }
+class GridHelper extends LineSegments {
+  /**
+   * Constructs a new grid helper.
+   *
+   * @param {number} [size=10] - The size of the grid.
+   * @param {number} [divisions=10] - The number of divisions across the grid.
+   * @param {number|Color|string} [color1=0x444444] - The color of the center line.
+   * @param {number|Color|string} [color2=0x888888] - The color of the lines of the grid.
+   */
+  constructor(size = 10, divisions = 10, color1 = 4473924, color2 = 8947848) {
+    color1 = new Color(color1);
+    color2 = new Color(color2);
+    const center = divisions / 2;
+    const step = size / divisions;
+    const halfSize = size / 2;
+    const vertices = [], colors = [];
+    for (let i = 0, j = 0, k = -halfSize; i <= divisions; i++, k += step) {
+      vertices.push(-halfSize, 0, k, halfSize, 0, k);
+      vertices.push(k, 0, -halfSize, k, 0, halfSize);
+      const color = i === center ? color1 : color2;
+      color.toArray(colors, j);
+      j += 3;
+      color.toArray(colors, j);
+      j += 3;
+      color.toArray(colors, j);
+      j += 3;
+      color.toArray(colors, j);
+      j += 3;
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute("position", new Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute("color", new Float32BufferAttribute(colors, 3));
+    const material = new LineBasicMaterial({ vertexColors: true, toneMapped: false });
+    super(geometry, material);
+    this.type = "GridHelper";
+  }
+  /**
+   * Frees the GPU-related resources allocated by this instance. Call this
+   * method whenever this instance is no longer used in your app.
+   */
+  dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
+  }
+}
+class Box3Helper extends LineSegments {
+  /**
+   * Constructs a new box3 helper.
+   *
+   * @param {Box3} box - The box to visualize.
+   * @param {number|Color|string} [color=0xffff00] - The box's color.
+   */
+  constructor(box, color = 16776960) {
+    const indices = new Uint16Array([0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7]);
+    const positions = [1, 1, 1, -1, 1, 1, -1, -1, 1, 1, -1, 1, 1, 1, -1, -1, 1, -1, -1, -1, -1, 1, -1, -1];
+    const geometry = new BufferGeometry();
+    geometry.setIndex(new BufferAttribute(indices, 1));
+    geometry.setAttribute("position", new Float32BufferAttribute(positions, 3));
+    super(geometry, new LineBasicMaterial({ color, toneMapped: false }));
+    this.box = box;
+    this.type = "Box3Helper";
+    this.geometry.computeBoundingSphere();
+  }
+  updateMatrixWorld(force) {
+    const box = this.box;
+    if (box.isEmpty()) return;
+    box.getCenter(this.position);
+    box.getSize(this.scale);
+    this.scale.multiplyScalar(0.5);
+    super.updateMatrixWorld(force);
+  }
+  /**
+   * Frees the GPU-related resources allocated by this instance. Call this
+   * method whenever this instance is no longer used in your app.
+   */
+  dispose() {
+    this.geometry.dispose();
+    this.material.dispose();
+  }
+}
 class AxesHelper extends LineSegments {
   /**
    * Constructs a new axes helper.
@@ -52483,19 +52957,144 @@ function interceptControlUp(event) {
     document2.removeEventListener("keyup", this._interceptControlUp, { passive: true, capture: true });
   }
 }
+function toTightArrayBuffer(u8) {
+  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
+}
+function applyHeightColors(geo) {
+  const pos = geo.getAttribute("position");
+  if (!pos) return;
+  let minZ = Infinity, maxZ = -Infinity;
+  for (let i = 0; i < pos.count; i++) {
+    const z = pos.getZ(i);
+    if (z < minZ) minZ = z;
+    if (z > maxZ) maxZ = z;
+  }
+  const span = maxZ - minZ || 1;
+  const colors = new Float32Array(pos.count * 3);
+  for (let i = 0; i < pos.count; i++) {
+    const t = (pos.getZ(i) - minZ) / span;
+    colors[i * 3 + 0] = t;
+    colors[i * 3 + 1] = 0;
+    colors[i * 3 + 2] = 1 - t;
+  }
+  geo.setAttribute("color", new BufferAttribute(colors, 3));
+}
 function Scene3D() {
+  const dispatch = useDispatch();
   const mountRef = reactExports.useRef(null);
   const filePath = useSelector((s) => s.ui.filePath);
-  const { pointSize, colorMode, fixedColor, showAxes, showLight } = useSelector(
-    (s) => s.scene
-  );
+  const {
+    pointSize,
+    colorMode,
+    fixedColor,
+    showAxes,
+    showLight,
+    showGrid,
+    cameraCommand,
+    // NEW:
+    showBBox,
+    clippingEnabled,
+    clipX,
+    clipY,
+    clipZ,
+    viewPresets
+  } = useSelector((s) => s.scene);
   const pointsRef = reactExports.useRef(null);
   const axesRef = reactExports.useRef(null);
   const lightRef = reactExports.useRef(null);
+  const gridRef = reactExports.useRef(null);
+  const sceneRef = reactExports.useRef(null);
+  const cameraRef = reactExports.useRef(null);
+  const controlsRef = reactExports.useRef(null);
+  const rendererRef = reactExports.useRef(null);
+  const bboxRef = reactExports.useRef(null);
+  const bboxHelperRef = reactExports.useRef(null);
+  const axesSceneRef = reactExports.useRef(null);
+  const axesCameraRef = reactExports.useRef(null);
+  const axesRendererRef = reactExports.useRef(null);
+  function fitCameraToObject(camera, controls, object, offset = 1.2) {
+    const box = new Box3().setFromObject(object);
+    const sphere = box.getBoundingSphere(new Sphere());
+    const vFov = MathUtils.degToRad(camera.fov);
+    const aspect2 = camera.aspect;
+    const distV = sphere.radius / Math.tan(vFov / 2);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect2);
+    const distH = sphere.radius / Math.tan(hFov / 2);
+    const distance = Math.max(distV, distH) * offset;
+    camera.near = Math.max(1e-3, sphere.radius / 1e3);
+    camera.far = sphere.radius * 1e3;
+    camera.updateProjectionMatrix();
+    const dir = new Vector3(0, 0, 1);
+    camera.position.copy(sphere.center.clone().add(dir.multiplyScalar(distance)));
+    controls.target.copy(sphere.center);
+    controls.maxDistance = sphere.radius * 100;
+    controls.update();
+  }
+  function applyClipping() {
+    const renderer = rendererRef.current;
+    const pts = pointsRef.current;
+    const bbox = bboxRef.current;
+    if (!renderer || !pts) return;
+    renderer.localClippingEnabled = !!clippingEnabled;
+    const mat = pts.material;
+    if (!clippingEnabled || !bbox) {
+      mat.clippingPlanes = [];
+      mat.needsUpdate = true;
+      return;
+    }
+    const planes = [];
+    const min = bbox.min.clone();
+    const max = bbox.max.clone();
+    const lerp2 = MathUtils.lerp;
+    const xMinW = lerp2(min.x, max.x, clipX.min);
+    const xMaxW = lerp2(min.x, max.x, clipX.max);
+    const yMinW = lerp2(min.y, max.y, clipY.min);
+    const yMaxW = lerp2(min.y, max.y, clipY.max);
+    const zMinW = lerp2(min.z, max.z, clipZ.min);
+    const zMaxW = lerp2(min.z, max.z, clipZ.max);
+    if (clipX.enabled) {
+      planes.push(new Plane(new Vector3(1, 0, 0), -xMinW));
+      planes.push(new Plane(new Vector3(-1, 0, 0), xMaxW));
+    }
+    if (clipY.enabled) {
+      planes.push(new Plane(new Vector3(0, 1, 0), -yMinW));
+      planes.push(new Plane(new Vector3(0, -1, 0), yMaxW));
+    }
+    if (clipZ.enabled) {
+      planes.push(new Plane(new Vector3(0, 0, 1), -zMinW));
+      planes.push(new Plane(new Vector3(0, 0, -1), zMaxW));
+    }
+    mat.clippingPlanes = planes;
+    mat.needsUpdate = true;
+  }
+  function saveViewPreset(id) {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const cam = cameraRef.current;
+    const target = controlsRef.current.target;
+    dispatch(
+      upsertViewPreset({
+        id,
+        cameraPos: [cam.position.x, cam.position.y, cam.position.z],
+        target: [target.x, target.y, target.z]
+      })
+    );
+  }
+  function loadViewPresetById(id) {
+    if (!cameraRef.current || !controlsRef.current) return;
+    const preset = viewPresets.find((p) => p.id === id);
+    if (!preset) return;
+    const cam = cameraRef.current;
+    const ctrl = controlsRef.current;
+    cam.position.set(...preset.cameraPos);
+    ctrl.target.set(...preset.target);
+    cam.updateProjectionMatrix();
+    ctrl.update();
+  }
   reactExports.useEffect(() => {
     if (!mountRef.current) return;
     const scene = new Scene();
     scene.background = new Color(1118481);
+    sceneRef.current = scene;
     const camera = new PerspectiveCamera(
       60,
       mountRef.current.clientWidth / mountRef.current.clientHeight,
@@ -52503,13 +53102,17 @@ function Scene3D() {
       1e4
     );
     camera.position.set(0, 0, 5);
+    cameraRef.current = camera;
     const renderer = new WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
     renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+    renderer.localClippingEnabled = true;
     mountRef.current.appendChild(renderer.domElement);
+    rendererRef.current = renderer;
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    controlsRef.current = controls;
     const dir = new DirectionalLight(16777215, 0.7);
     dir.position.set(1, 1, 1);
     scene.add(dir);
@@ -52518,91 +53121,207 @@ function Scene3D() {
     const axes = new AxesHelper(1);
     scene.add(axes);
     axesRef.current = axes;
+    const grid = new GridHelper(10, 20, 4473924, 2236962);
+    scene.add(grid);
+    gridRef.current = grid;
+    const axesScene = new Scene();
+    const axesCamera = new PerspectiveCamera(50, 1, 0.1, 10);
+    axesCamera.position.set(0, 0, 2);
+    const axesMini = new AxesHelper(0.8);
+    axesScene.add(axesMini);
+    const axesRenderer = new WebGLRenderer({ alpha: true, antialias: true });
+    axesRenderer.setSize(100, 100);
+    axesRenderer.domElement.style.position = "absolute";
+    axesRenderer.domElement.style.top = "10px";
+    axesRenderer.domElement.style.right = "10px";
+    axesRenderer.domElement.style.pointerEvents = "none";
+    mountRef.current.appendChild(axesRenderer.domElement);
+    axesSceneRef.current = axesScene;
+    axesCameraRef.current = axesCamera;
+    axesRendererRef.current = axesRenderer;
     let raf = 0;
     const animate = () => {
       raf = requestAnimationFrame(animate);
       controls.update();
       renderer.render(scene, camera);
+      if (axesCameraRef.current && axesRendererRef.current) {
+        axesCameraRef.current.quaternion.copy(camera.quaternion);
+        axesRendererRef.current.render(axesScene, axesCameraRef.current);
+      }
     };
     animate();
     const onResize = () => {
       if (!mountRef.current) return;
-      camera.aspect = mountRef.current.clientWidth / mountRef.current.clientHeight;
+      const w = mountRef.current.clientWidth;
+      const h = mountRef.current.clientHeight;
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
-      renderer.setSize(mountRef.current.clientWidth, mountRef.current.clientHeight);
+      renderer.setSize(w, h);
     };
     window.addEventListener("resize", onResize);
+    dispatch(loadViewPresetsFromStorage());
     const loadPCDFromPath = async (path) => {
+      var _a, _b;
       try {
         const data = await window.api.readFile(path);
         const loader = new PCDLoader();
-        const parsed = loader.parse(data.buffer, path);
-        parsed.geometry.center();
-        const bb = new Box3().setFromObject(parsed);
+        const points = loader.parse(toTightArrayBuffer(data), path);
+        points.geometry.center();
+        const bb = new Box3().setFromObject(points);
         const size = bb.getSize(new Vector3()).length() || 1;
-        const scale = 3 / size;
-        parsed.scale.setScalar(scale);
+        points.scale.setScalar(3 / size);
         let material;
-        if (parsed.material instanceof PointsMaterial) {
-          material = parsed.material;
+        if (points.material instanceof PointsMaterial) {
+          material = points.material;
         } else {
           material = new PointsMaterial({ size: pointSize, sizeAttenuation: true });
         }
-        material.vertexColors = true;
-        material.size = pointSize;
         if (colorMode === "fixed") {
           material.vertexColors = false;
           material.color = new Color(fixedColor);
         } else {
+          const hasColors = !!points.geometry.getAttribute("color");
+          if (!hasColors) applyHeightColors(points.geometry);
           material.vertexColors = true;
         }
-        parsed.material = material;
-        if (pointsRef.current) scene.remove(pointsRef.current);
-        pointsRef.current = parsed;
-        scene.add(parsed);
-        camera.position.set(0, 0, 5);
-        camera.lookAt(0, 0, 0);
-        controls.target.set(0, 0, 0);
+        material.size = pointSize;
+        points.material = material;
+        if (pointsRef.current) {
+          scene.remove(pointsRef.current);
+          pointsRef.current.geometry.dispose();
+          (_b = (_a = pointsRef.current.material) == null ? void 0 : _a.dispose) == null ? void 0 : _b.call(_a);
+        }
+        if (bboxHelperRef.current) {
+          scene.remove(bboxHelperRef.current);
+          bboxHelperRef.current = null;
+        }
+        pointsRef.current = points;
+        scene.add(points);
+        const bbox = new Box3().setFromObject(points);
+        bboxRef.current = bbox;
+        if (showBBox) {
+          const helper = new Box3Helper(bbox, 65535);
+          scene.add(helper);
+          bboxHelperRef.current = helper;
+        }
+        fitCameraToObject(camera, controls, points, 1.2);
+        applyClipping();
       } catch (e) {
         console.error("Failed to load PCD:", e);
       }
     };
     if (filePath) loadPCDFromPath(filePath);
     return () => {
-      var _a;
+      var _a, _b, _c;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
       controls.dispose();
       renderer.dispose();
-      if (pointsRef.current) scene.remove(pointsRef.current);
+      if (pointsRef.current) {
+        scene.remove(pointsRef.current);
+        pointsRef.current.geometry.dispose();
+        (_b = (_a = pointsRef.current.material) == null ? void 0 : _a.dispose) == null ? void 0 : _b.call(_a);
+      }
       if (axesRef.current) scene.remove(axesRef.current);
+      if (gridRef.current) scene.remove(gridRef.current);
       if (lightRef.current) scene.remove(lightRef.current);
-      (_a = mountRef.current) == null ? void 0 : _a.removeChild(renderer.domElement);
+      (_c = mountRef.current) == null ? void 0 : _c.removeChild(renderer.domElement);
+      if (axesRenderer.domElement.parentElement === mountRef.current) {
+        mountRef.current.removeChild(axesRenderer.domElement);
+      }
+      axesRenderer.dispose();
     };
-  }, [filePath]);
-  reactExports.useEffect(() => {
-    const pts = pointsRef.current;
-    if (!pts) return;
-    const mat = pts.material || new PointsMaterial();
-    mat.size = pointSize;
-    if (colorMode === "fixed") {
-      mat.vertexColors = false;
-      mat.color = new Color(fixedColor);
-    } else {
-      mat.vertexColors = true;
-    }
-    pts.material = mat;
-  }, [pointSize, colorMode, fixedColor]);
+  }, [filePath, colorMode, fixedColor, pointSize]);
   reactExports.useEffect(() => {
     if (axesRef.current) axesRef.current.visible = showAxes;
   }, [showAxes]);
   reactExports.useEffect(() => {
     if (lightRef.current) lightRef.current.visible = showLight;
   }, [showLight]);
-  return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { width: "100%", height: "100%" }, ref: mountRef }, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/three/Scene3D.tsx",
-    lineNumber: 166,
-    columnNumber: 12
+  reactExports.useEffect(() => {
+    if (gridRef.current) gridRef.current.visible = showGrid;
+  }, [showGrid]);
+  reactExports.useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene || !bboxRef.current) return;
+    if (showBBox && !bboxHelperRef.current) {
+      const helper = new Box3Helper(bboxRef.current, 65535);
+      scene.add(helper);
+      bboxHelperRef.current = helper;
+    } else if (!showBBox && bboxHelperRef.current) {
+      scene.remove(bboxHelperRef.current);
+      bboxHelperRef.current = null;
+    }
+  }, [showBBox]);
+  reactExports.useEffect(() => {
+    if (!cameraCommand || !cameraRef.current || !controlsRef.current) return;
+    const cam = cameraRef.current;
+    const controls = controlsRef.current;
+    const setView = (view) => {
+      if (view === "top") cam.position.set(0, 5, 0);
+      if (view === "front") cam.position.set(0, 0, 5);
+      if (view === "side") cam.position.set(5, 0, 0);
+      controls.target.set(0, 0, 0);
+      controls.update();
+    };
+    switch (cameraCommand) {
+      case "reset":
+        cam.position.set(0, 0, 5);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        break;
+      case "top":
+      case "front":
+      case "side":
+        setView(cameraCommand);
+        break;
+    }
+    dispatch(clearCameraCommand());
+  }, [cameraCommand, dispatch]);
+  reactExports.useEffect(() => {
+    const handler = (e) => {
+      if (!cameraRef.current || !controlsRef.current) return;
+      const cam = cameraRef.current;
+      const controls = controlsRef.current;
+      const key = e.key.toLowerCase();
+      if (key === "r") {
+        cam.position.set(0, 0, 5);
+        controls.target.set(0, 0, 0);
+        controls.update();
+        return;
+      }
+      if (key === "1") {
+        cam.position.set(0, 0, 5);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      } else if (key === "2") {
+        cam.position.set(5, 0, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      } else if (key === "3") {
+        cam.position.set(0, 5, 0);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      }
+      const digit = Number(e.key);
+      if (Number.isInteger(digit) && digit >= 1 && digit <= 5) {
+        if (e.altKey && e.ctrlKey) {
+          saveViewPreset(digit);
+        } else if (e.altKey && !e.ctrlKey) {
+          loadViewPresetById(digit);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [viewPresets]);
+  reactExports.useEffect(() => {
+    applyClipping();
+  }, [clippingEnabled, clipX, clipY, clipZ]);
+  return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { width: "100%", height: "100%", position: "relative" }, ref: mountRef }, void 0, false, {
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/three/Scene3D.tsx",
+    lineNumber: 456,
+    columnNumber: 10
   }, this);
 }
 function FileLoader2() {
@@ -52612,28 +53331,38 @@ function FileLoader2() {
     if (path) dispatch(setFilePath(path));
   };
   return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("button", { onClick: handleOpen, children: "Open PCD File" }, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/FileLoader/FileLoader.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/FileLoader/FileLoader.tsx",
     lineNumber: 15,
     columnNumber: 7
   }, this) }, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/FileLoader/FileLoader.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/FileLoader/FileLoader.tsx",
     lineNumber: 14,
     columnNumber: 5
   }, this);
 }
 function SceneControls() {
   const dispatch = useDispatch();
-  const { pointSize, colorMode, fixedColor, showAxes, showLight } = useSelector(
-    (s) => s.scene
-  );
-  return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { display: "grid", gap: 10 }, children: [
+  const {
+    pointSize,
+    colorMode,
+    fixedColor,
+    showAxes,
+    showLight,
+    showGrid,
+    showBBox,
+    clippingEnabled,
+    clipX,
+    clipY,
+    clipZ
+  } = useSelector((s) => s.scene);
+  return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { display: "grid", gap: 12 }, children: [
     /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: [
         "Point size: ",
         pointSize.toFixed(3)
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 21,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 33,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
@@ -52649,21 +53378,21 @@ function SceneControls() {
         void 0,
         false,
         {
-          fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-          lineNumber: 22,
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 34,
           columnNumber: 9
         },
         this
       )
     ] }, void 0, true, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-      lineNumber: 20,
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 32,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Color mode" }, void 0, false, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 33,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 45,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { marginRight: 12 }, children: [
@@ -52678,8 +53407,8 @@ function SceneControls() {
           void 0,
           false,
           {
-            fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-            lineNumber: 35,
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 47,
             columnNumber: 11
           },
           this
@@ -52687,8 +53416,8 @@ function SceneControls() {
         " ",
         "Vertex"
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 34,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 46,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { children: [
@@ -52703,8 +53432,8 @@ function SceneControls() {
           void 0,
           false,
           {
-            fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-            lineNumber: 44,
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 56,
             columnNumber: 11
           },
           this
@@ -52712,19 +53441,19 @@ function SceneControls() {
         " ",
         "Fixed"
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 43,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 55,
         columnNumber: 9
       }, this)
     ] }, void 0, true, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-      lineNumber: 32,
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 44,
       columnNumber: 7
     }, this),
     colorMode === "fixed" && /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Fixed color" }, void 0, false, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 56,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 68,
         columnNumber: 11
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
@@ -52738,21 +53467,21 @@ function SceneControls() {
         void 0,
         false,
         {
-          fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-          lineNumber: 57,
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 69,
           columnNumber: 11
         },
         this
       )
     ] }, void 0, true, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-      lineNumber: 55,
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 67,
       columnNumber: 9
     }, this),
     /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Gizmos" }, void 0, false, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 67,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 79,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block" }, children: [
@@ -52766,8 +53495,8 @@ function SceneControls() {
           void 0,
           false,
           {
-            fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-            lineNumber: 69,
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 81,
             columnNumber: 11
           },
           this
@@ -52775,8 +53504,8 @@ function SceneControls() {
         " ",
         "Show axes"
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 68,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 80,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block" }, children: [
@@ -52790,8 +53519,8 @@ function SceneControls() {
           void 0,
           false,
           {
-            fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-            lineNumber: 77,
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 89,
             columnNumber: 11
           },
           this
@@ -52799,92 +53528,350 @@ function SceneControls() {
         " ",
         "Show light"
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-        lineNumber: 76,
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 88,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block" }, children: [
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+          "input",
+          {
+            type: "checkbox",
+            checked: showGrid,
+            onChange: (e) => dispatch(setShowGrid(e.target.checked))
+          },
+          void 0,
+          false,
+          {
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 97,
+            columnNumber: 11
+          },
+          this
+        ),
+        " ",
+        "Show grid"
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 96,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block" }, children: [
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+          "input",
+          {
+            type: "checkbox",
+            checked: showBBox,
+            onChange: (e) => dispatch(setShowBBox(e.target.checked))
+          },
+          void 0,
+          false,
+          {
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 105,
+            columnNumber: 11
+          },
+          this
+        ),
+        " ",
+        "Show bounding box"
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 104,
         columnNumber: 9
       }, this)
     ] }, void 0, true, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-      lineNumber: 66,
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 78,
+      columnNumber: 7
+    }, this),
+    /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Clipping" }, void 0, false, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 115,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block" }, children: [
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+          "input",
+          {
+            type: "checkbox",
+            checked: clippingEnabled,
+            onChange: (e) => dispatch(setClippingEnabled(e.target.checked))
+          },
+          void 0,
+          false,
+          {
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 117,
+            columnNumber: 11
+          },
+          this
+        ),
+        " ",
+        "Enable clipping"
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 116,
+        columnNumber: 9
+      }, this),
+      ["X", "Y", "Z"].map((axis) => {
+        const clip = axis === "X" ? clipX : axis === "Y" ? clipY : clipZ;
+        const setClip = axis === "X" ? setClipX : axis === "Y" ? setClipY : setClipZ;
+        return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { display: "grid", gridTemplateColumns: "auto auto 1fr 1fr", gap: 8, alignItems: "center", opacity: clippingEnabled ? 1 : 0.5 }, children: [
+          /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("strong", { children: axis }, void 0, false, {
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 130,
+            columnNumber: 15
+          }, this),
+          /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { children: [
+            /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+              "input",
+              {
+                type: "checkbox",
+                checked: clip.enabled,
+                onChange: (e) => dispatch(setClip({ enabled: e.target.checked })),
+                disabled: !clippingEnabled
+              },
+              void 0,
+              false,
+              {
+                fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+                lineNumber: 132,
+                columnNumber: 17
+              },
+              this
+            ),
+            " on"
+          ] }, void 0, true, {
+            fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+            lineNumber: 131,
+            columnNumber: 15
+          }, this),
+          /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+            "input",
+            {
+              type: "range",
+              min: 0,
+              max: 1,
+              step: 0.01,
+              value: clip.min,
+              onChange: (e) => dispatch(setClip({ min: parseFloat(e.target.value) })),
+              disabled: !clippingEnabled || !clip.enabled,
+              title: `${axis} min (${clip.min.toFixed(2)})`
+            },
+            void 0,
+            false,
+            {
+              fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+              lineNumber: 139,
+              columnNumber: 15
+            },
+            this
+          ),
+          /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(
+            "input",
+            {
+              type: "range",
+              min: 0,
+              max: 1,
+              step: 0.01,
+              value: clip.max,
+              onChange: (e) => dispatch(setClip({ max: parseFloat(e.target.value) })),
+              disabled: !clippingEnabled || !clip.enabled,
+              title: `${axis} max (${clip.max.toFixed(2)})`
+            },
+            void 0,
+            false,
+            {
+              fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+              lineNumber: 149,
+              columnNumber: 15
+            },
+            this
+          )
+        ] }, axis, true, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 129,
+          columnNumber: 13
+        }, this);
+      }),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("small", { children: "Диапазоны — в нормированных долях bbox по соответствующей оси (0..1)." }, void 0, false, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 162,
+        columnNumber: 9
+      }, this)
+    ] }, void 0, true, {
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 114,
+      columnNumber: 7
+    }, this),
+    /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Views" }, void 0, false, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 166,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }, children: [
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("button", { onClick: () => dispatch(triggerCameraCommand("top")), children: "Top" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 168,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("button", { onClick: () => dispatch(triggerCameraCommand("front")), children: "Front" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 169,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("button", { onClick: () => dispatch(triggerCameraCommand("side")), children: "Side" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 170,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("button", { onClick: () => dispatch(triggerCameraCommand("reset")), children: "Reset" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 171,
+          columnNumber: 11
+        }, this)
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 167,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("small", { children: [
+        "Пресеты видов: ",
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("kbd", { children: "Alt+1..5" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 173,
+          columnNumber: 31
+        }, this),
+        " — загрузить, ",
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("kbd", { children: "Ctrl+Alt+1..5" }, void 0, false, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 173,
+          columnNumber: 64
+        }, this),
+        " — сохранить."
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 173,
+        columnNumber: 9
+      }, this)
+    ] }, void 0, true, {
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 165,
+      columnNumber: 7
+    }, this),
+    /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("label", { style: { display: "block", marginBottom: 6 }, children: "Legend" }, void 0, false, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 177,
+        columnNumber: 9
+      }, this),
+      /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { fontSize: 12, lineHeight: 1.4 }, children: [
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
+          "Color: ",
+          colorMode === "vertex" ? "from PCD (or height LUT)" : fixedColor
+        ] }, void 0, true, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 179,
+          columnNumber: 11
+        }, this),
+        /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { children: [
+          "Point size: ",
+          pointSize.toFixed(3)
+        ] }, void 0, true, {
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+          lineNumber: 180,
+          columnNumber: 11
+        }, this)
+      ] }, void 0, true, {
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+        lineNumber: 178,
+        columnNumber: 9
+      }, this)
+    ] }, void 0, true, {
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+      lineNumber: 176,
       columnNumber: 7
     }, this)
   ] }, void 0, true, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
-    lineNumber: 19,
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/features/SceneControls/SceneControls.tsx",
+    lineNumber: 31,
     columnNumber: 5
   }, this);
 }
 function Home() {
   return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("div", { style: { display: "flex", flexDirection: "column", height: "100vh" }, children: [
     /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("header", { style: { padding: "0.5rem", background: "#222", color: "#fff" }, children: /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("h1", { children: "PCD Viewer" }, void 0, false, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
       lineNumber: 10,
       columnNumber: 9
     }, this) }, void 0, false, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
       lineNumber: 9,
       columnNumber: 7
     }, this),
     /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("main", { style: { flex: 1, display: "flex" }, children: [
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("aside", { style: { width: 280, borderRight: "1px solid #444", padding: 12 }, children: [
         /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(FileLoader2, {}, void 0, false, {
-          fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
           lineNumber: 14,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("hr", { style: { margin: "12px 0", borderColor: "#333" } }, void 0, false, {
-          fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
           lineNumber: 15,
           columnNumber: 11
         }, this),
         /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(SceneControls, {}, void 0, false, {
-          fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+          fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
           lineNumber: 16,
           columnNumber: 11
         }, this)
       ] }, void 0, true, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
         lineNumber: 13,
         columnNumber: 9
       }, this),
       /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV("section", { style: { flex: 1 }, children: /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(Scene3D, {}, void 0, false, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
         lineNumber: 19,
         columnNumber: 11
       }, this) }, void 0, false, {
-        fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+        fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
         lineNumber: 18,
         columnNumber: 9
       }, this)
     ] }, void 0, true, {
-      fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+      fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
       lineNumber: 12,
       columnNumber: 7
     }, this)
   ] }, void 0, true, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/pages/Home.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/pages/Home.tsx",
     lineNumber: 8,
     columnNumber: 5
   }, this);
 }
 function App() {
   return /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(Home, {}, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/App.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/App.tsx",
     lineNumber: 4,
     columnNumber: 10
   }, this);
 }
 client.createRoot(document.getElementById("root")).render(
   /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(React.StrictMode, { children: /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(Provider_default, { store, children: /* @__PURE__ */ jsxDevRuntimeExports.jsxDEV(App, {}, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/main.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/main.tsx",
     lineNumber: 14,
     columnNumber: 7
   }, void 0) }, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/main.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/main.tsx",
     lineNumber: 13,
     columnNumber: 5
   }, void 0) }, void 0, false, {
-    fileName: "/home/qquerell/programming/LCT/frontend/src/renderer/main.tsx",
+    fileName: "/home/qquerell/programming/LidarCleaner/frontend/src/renderer/main.tsx",
     lineNumber: 12,
     columnNumber: 3
   }, void 0)

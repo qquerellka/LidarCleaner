@@ -3,12 +3,12 @@ import * as THREE from "three";
 import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useSelector, useDispatch } from "react-redux";
-import type { RootState } from "@renderer/store";
+import type { RootState } from "../store";
 import {
   clearCameraCommand,
   loadViewPresetsFromStorage,
   upsertViewPreset,
-} from "@renderer/store/sceneSlice";
+} from "../store/sceneSlice";
 
 function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer {
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);

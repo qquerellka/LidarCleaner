@@ -25,27 +25,27 @@ type Config struct {
 var AppConfig *Config
 
 // LoadConfig загружает конфигурацию из файла .env
+
 func LoadConfig() {
-	// Загружаем переменные окружения из файла .env
-	err := godotenv.Load()
-	if err != nil {
-		log.Println("Error loading .env file")
-	}
+ // Загружаем переменные окружения из файла .env
+ err := godotenv.Load()
+ if err != nil {
+  log.Println("Error loading .env file")
+ }
 
-	// Устанавливаем конфигурационные параметры
-	AppConfig = &Config{
-		Port: getEnv("PORT", "8000"),
-
-		MinioEndpoint:     "minio:9000",
-		BucketName:        getEnv("MINIO_BUCKET_NAME", "defaultbucket"),
-		MinioRootUser:     getEnv("MINIO_ROOT_USER", "root"),
-		MinioRootPassword: getEnv("MINIO_ROOT_PASSWORD", "minio_password"),
-		MinioUseSSL:       getEnvAsBool("MINIO_USE_SSL", false),
-		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"),
-		RabbitMQURL:       getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
-		RabbitMQExchange:  getEnv("RABBITMQ_EXCHANGE", "pcd_files"),
-		RabbitMQQueue:     getEnv("RABBITMQ_QUEUE", "file_metadata_queue"),
-	}
+ // Устанавливаем конфигурационные параметры
+ AppConfig = &Config{
+  Port:              "8000",
+  MinioEndpoint:     "minio:9000",
+  BucketName:        "defaultbucket",
+  MinioRootUser:     "root",
+  MinioRootPassword: "minio_password",
+  MinioUseSSL:       false,
+  DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
+  RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
+  RabbitMQExchange:  "pcd_files",
+  RabbitMQQueue:     "file_metadata_queue",
+ }
 }
 
 // getEnv считывает значение переменной окружения или возвращает значение по умолчанию, если переменная не установлена
