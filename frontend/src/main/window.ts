@@ -18,7 +18,7 @@ export function createMainWindow() {
 
   const isDev = !app.isPackaged
   if (isDev) {
-    const url = process.env.VITE_DEV_SERVER_URL! // плагин подставит http://localhost:5173
+    const url = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5173'
     win.loadURL(url)
     win.webContents.openDevTools({ mode: 'detach' })
   } else {

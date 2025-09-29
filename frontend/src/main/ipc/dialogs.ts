@@ -5,12 +5,15 @@ import { promises as fsp } from "fs";
 import { getDefaultPaths } from "../paths";
 
 export function registerDialogIpc() {
-  // Open PCD
+  // Open PCD/PLY
   ipcMain.handle("dialog:openPCD", async () => {
     const { canceled, filePaths } = await dialog.showOpenDialog({
-      title: "Open PCD",
+      title: "Open Point Cloud",
       properties: ["openFile"],
-      filters: [{ name: "Point Cloud Data", extensions: ["pcd"] }],
+      filters: [
+        { name: "Point Clouds", extensions: ["pcd", "ply"] },
+        { name: "All Files", extensions: ["*"] },
+      ],
     });
     if (canceled || filePaths.length === 0) return null;
     return filePaths[0];

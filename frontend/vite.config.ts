@@ -1,7 +1,6 @@
 // vite.config.ts
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
-import electron from 'vite-plugin-electron'
 import electronRenderer from 'vite-plugin-electron-renderer'
 import { resolve } from 'path'
 
@@ -10,18 +9,6 @@ export default defineConfig({
   root: 'src/renderer',
   plugins: [
     react(),
-    electron({
-      // сборка main-процесса
-      main: {
-        entry: 'src/main/index.ts',
-        vite: { build: { outDir: 'dist-electron/main', target: 'node18' } },
-      },
-      // сборка preload
-      preload: {
-        input: { preload: 'src/main/preload.ts' },
-        vite: { build: { outDir: 'dist-electron/preload', target: 'node18' } },
-      },
-    }),
     // чтобы импортировать из 'electron' и нативных модулей в рендерере
     electronRenderer(),
   ],
@@ -34,8 +21,9 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve(__dirname, 'dist/renderer'),
+    // складываем рендерер вместе в dist-electron/renderer
+    outDir: resolve(__dirname, 'dist-electron/renderer'),
     emptyOutDir: true,
   },
-  server: { port: 5173, strictPort: true },
+  server: { host: true, port: 5173, strictPort: true },
 })

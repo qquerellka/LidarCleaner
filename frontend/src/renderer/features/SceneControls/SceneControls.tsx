@@ -1,6 +1,6 @@
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
-import type { RootState } from "@renderer/store";
+import type { RootState } from "../../store";
 import {
   setPointSize,
   setColorMode,
@@ -16,7 +16,7 @@ import {
   setClipX,
   setClipY,
   setClipZ,
-} from "@renderer/store/sceneSlice";
+} from "../../store/sceneSlice";
 
 export default function SceneControls() {
   const dispatch = useDispatch();
