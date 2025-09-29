@@ -59,6 +59,13 @@ contextBridge.exposeInMainWorld("api", {
 
   readFile: (path: string): Promise<Uint8Array> =>
     ipcRenderer.invoke("fs:readFile", { path }),
+
+  // Backend API
+  backendHealth: (): Promise<unknown> => ipcRenderer.invoke("backend:health"),
+  backendDownloadById: (id: string, filename?: string): Promise<string> =>
+    ipcRenderer.invoke("backend:downloadById", { id, filename }),
+  backendUploadFile: (filePath: string, objectKey?: string): Promise<unknown> =>
+    ipcRenderer.invoke("backend:uploadFile", { filePath, objectKey }),
 });
 
 // ---- Типы для TS в рендерере ----
@@ -87,6 +94,9 @@ declare global {
       ) => () => void;
       onMenuOpenPCD: (cb: () => void) => () => void;
       readFile: (path: string) => Promise<Uint8Array>;
+      backendHealth: () => Promise<unknown>;
+      backendDownloadById: (id: string, filename?: string) => Promise<string>;
+      backendUploadFile: (filePath: string, objectKey?: string) => Promise<unknown>;
     };
   }
 }

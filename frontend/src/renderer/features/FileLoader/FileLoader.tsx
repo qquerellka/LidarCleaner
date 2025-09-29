@@ -7,7 +7,16 @@ export default function FileLoader() {
 
   const handleOpen = async () => {
     const path = await window.api.openPCD();
-    if (path) dispatch(setFilePath(path));
+    if (path) {
+      dispatch(setFilePath(path));
+      // Автозагрузка на бэкенд сразу после выбора файла
+      try {
+        await window.api.backendUploadFile(path);
+      } catch (e) {
+        // опционально: показать уведомление пользователю
+        // console.error(e);
+      }
+    }
   };
 
   return (

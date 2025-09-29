@@ -7,6 +7,7 @@ import { registerDialogIpc } from "./ipc/dialogs";
 import { registerAppPathsIpc } from "./ipc/appPaths";
 import { registerNetIpc } from "./ipc/net";
 import { registerFsIpc } from "./ipc/fs"; // по желанию
+import { registerBackendIpc } from "./ipc/backend";
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -27,6 +28,7 @@ function registerAllIpc() {
   registerAppPathsIpc();
   registerNetIpc();
   registerFsIpc();
+  registerBackendIpc();
 }
 
 app.whenReady().then(() => {
