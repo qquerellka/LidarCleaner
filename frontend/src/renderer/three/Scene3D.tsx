@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from "react";
 import * as THREE from "three";
 import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
+import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useSelector, useDispatch } from "react-redux";
 import type { RootState } from "../store";
@@ -10,7 +11,7 @@ import {
   upsertViewPreset,
 } from "../store/sceneSlice";
 
-function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer {
+function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer | SharedArrayBuffer {
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
 }
 
@@ -252,12 +253,27 @@ export default function Scene3D() {
     // поднимем пресеты из localStorage
     dispatch(loadViewPresetsFromStorage());
 
-    // загрузка PCD
-    const loadPCDFromPath = async (path: string) => {
+    // загрузка PCD/PLY
+    const loadPointCloudFromPath = async (path: string) => {
       try {
         const data = await window.api.readFile(path);
-        const loader = new PCDLoader();
-        const points = loader.parse(toTightArrayBuffer(data), path) as THREE.Points;
+        const ab = toTightArrayBuffer(data) as ArrayBuffer;
+
+        const ext = path.split(".").pop()?.toLowerCase();
+        let points: THREE.Points;
+        if (ext === "pcd") {
+          const loader = new PCDLoader();
+          points = loader.parse(ab) as THREE.Points;
+        } else if (ext === "ply") {
+          const loader = new PLYLoader();
+          const geometry = loader.parse(ab);
+          points = new THREE.Points(
+            geometry,
+            new THREE.PointsMaterial({ size: pointSize, sizeAttenuation: true })
+          );
+        } else {
+          throw new Error(`Unsupported file type: ${ext}`);
+        }
 
         // центрируем и нормируем масштаб (как у тебя)
         points.geometry.center();
@@ -320,7 +336,7 @@ export default function Scene3D() {
       }
     };
 
-    if (filePath) loadPCDFromPath(filePath);
+    if (filePath) loadPointCloudFromPath(filePath);
 
     return () => {
       cancelAnimationFrame(raf);
@@ -338,7 +354,7 @@ export default function Scene3D() {
       if (lightRef.current) scene.remove(lightRef.current);
 
       mountRef.current?.removeChild(renderer.domElement);
-      if (axesRenderer.domElement.parentElement === mountRef.current) {
+      if (mountRef.current && axesRenderer.domElement.parentElement === mountRef.current) {
         mountRef.current.removeChild(axesRenderer.domElement);
       }
       axesRenderer.dispose();

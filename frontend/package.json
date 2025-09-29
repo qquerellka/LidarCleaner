@@ -7,7 +7,7 @@
     "dev:renderer": "vite",
     "dev:main": "esbuild src/main/index.ts --bundle --platform=node --outdir=dist-electron/main --format=cjs --sourcemap --watch --external:electron",
     "dev:preload": "esbuild src/main/preload.ts --bundle --platform=node --outdir=dist-electron/preload --format=cjs --sourcemap --watch --external:electron",
-    "dev:electron": "wait-on tcp:5173 && electron .",
+    "dev:electron": "wait-on tcp:5173 dist-electron/main/index.js dist-electron/preload/preload.js && electron .",
     "dev": "concurrently -r -n RENDERER,MAIN,PRELOAD,ELECTRON -c yellow,cyan,magenta,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:preload\" \"npm:dev:electron\"",
     "build": "vite build",
     "preview": "electron .",
