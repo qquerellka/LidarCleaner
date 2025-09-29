@@ -59,6 +59,13 @@ export default function Scene3D() {
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  const mouseNdcRef = useRef(new THREE.Vector2());
+  const helpVisibleRef = useRef<boolean>(false);
+  const flyModeRef = useRef<boolean>(false);
+  const autoRotateRef = useRef<boolean>(false);
+  const keysRef = useRef<Set<string>>(new Set());
+  const pointSizeScaleRef = useRef<number>(1);
 
   // BBox
   const bboxRef = useRef<THREE.Box3 | null>(null);
@@ -191,8 +198,24 @@ export default function Scene3D() {
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.dampingFactor = 0.05;
+    controls.dampingFactor = 0.08;
+    controls.zoomToCursor = true as unknown as boolean; // supported in recent three.js
+    controls.screenSpacePanning = true;
+    controls.minDistance = 0.01;
+    controls.maxDistance = 1e6;
+    controls.maxPolarAngle = Math.PI * 0.495;
+    controls.addEventListener("change", () => {
+      if (controls.target.y < 0) {
+        controls.target.y = 0;
+        controls.update();
+      }
+    });
     controlsRef.current = controls;
+
+    const raycaster = new THREE.Raycaster();
+    // increase threshold for picking sparse points
+    (raycaster.params as any).Points = { threshold: 0.02 };
+    raycasterRef.current = raycaster;
 
     const dir = new THREE.DirectionalLight(0xffffff, 0.7);
     dir.position.set(1, 1, 1);
@@ -220,7 +243,7 @@ export default function Scene3D() {
     axesRenderer.domElement.style.position = "absolute";
     axesRenderer.domElement.style.top = "10px";
     axesRenderer.domElement.style.right = "10px";
-    axesRenderer.domElement.style.pointerEvents = "none";
+    axesRenderer.domElement.style.pointerEvents = "auto";
     mountRef.current.appendChild(axesRenderer.domElement);
 
     axesSceneRef.current = axesScene;
@@ -230,12 +253,48 @@ export default function Scene3D() {
     let raf = 0;
     const animate = () => {
       raf = requestAnimationFrame(animate);
+      if (flyModeRef.current) {
+        const speedBase = camera.position.distanceTo(controls.target) * 0.5 + 0.1;
+        const hasShift = keysRef.current.has("shift");
+        const hasCtrl = keysRef.current.has("control");
+        const speed = speedBase * (hasShift ? 4 : hasCtrl ? 0.25 : 1) * 0.016;
+
+        const forward = new THREE.Vector3();
+        camera.getWorldDirection(forward);
+        forward.normalize();
+        const right = new THREE.Vector3().crossVectors(forward, camera.up).negate().normalize();
+        const up = camera.up.clone().normalize();
+
+        const move = new THREE.Vector3();
+        if (keysRef.current.has("w")) move.add(forward);
+        if (keysRef.current.has("s")) move.add(forward.clone().multiplyScalar(-1));
+        if (keysRef.current.has("a")) move.add(right.clone().multiplyScalar(-1));
+        if (keysRef.current.has("d")) move.add(right);
+        if (keysRef.current.has("q")) move.add(up.clone().multiplyScalar(-1));
+        if (keysRef.current.has("e")) move.add(up);
+
+        if (move.lengthSq() > 0) {
+          move.normalize().multiplyScalar(speed);
+          camera.position.add(move);
+          controls.target.add(move);
+        }
+      }
+
+      controls.autoRotate = autoRotateRef.current && !flyModeRef.current;
       controls.update();
       renderer.render(scene, camera);
 
       if (axesCameraRef.current && axesRendererRef.current) {
         axesCameraRef.current.quaternion.copy(camera.quaternion);
         axesRendererRef.current.render(axesScene, axesCameraRef.current);
+      }
+      // dynamic point size keeping screen-space feel
+      if (pointsRef.current) {
+        const mat = pointsRef.current.material as THREE.PointsMaterial;
+        const base = pointSize * pointSizeScaleRef.current;
+        const dist = camera.position.distanceTo(controls.target) || 1;
+        // heuristic: keep roughly constant size in pixels across zoom levels
+        mat.size = base * Math.max(0.5, Math.min(5, dist * 0.02));
       }
     };
     animate();
@@ -249,6 +308,19 @@ export default function Scene3D() {
       renderer.setSize(w, h);
     };
     window.addEventListener("resize", onResize);
+
+    // restore camera from storage
+    try {
+      const saved = localStorage.getItem("pcd_camera");
+      if (saved) {
+        const { pos, target } = JSON.parse(saved);
+        if (Array.isArray(pos) && Array.isArray(target)) {
+          camera.position.set(pos[0], pos[1], pos[2]);
+          controls.target.set(target[0], target[1], target[2]);
+          controls.update();
+        }
+      }
+    } catch {}
 
     // поднимем пресеты из localStorage
     dispatch(loadViewPresetsFromStorage());
@@ -315,6 +387,33 @@ export default function Scene3D() {
         pointsRef.current = points;
         scene.add(points);
 
+        // авто-ориентация: сделать тонкую ось вертикальной (Y-up) и положить на плоскость
+        {
+          const preBox = new THREE.Box3().setFromObject(points);
+          const ext = preBox.getSize(new THREE.Vector3());
+          // найдём наименьшую толщину как предполагаемую "высоту"
+          const dims = [ext.x, ext.y, ext.z];
+          const minIdx = dims.indexOf(Math.min(ext.x, ext.y, ext.z));
+          if (minIdx !== 1) {
+            // нужно повернуть, чтобы эта ось стала Y
+            const rot = new THREE.Euler();
+            if (minIdx === 0) {
+              // X -> Y (поворот вокруг Z на +90°)
+              rot.set(0, 0, Math.PI / 2);
+            } else if (minIdx === 2) {
+              // Z -> Y (поворот вокруг X на -90°)
+              rot.set(-Math.PI / 2, 0, 0);
+            }
+            points.rotateX(rot.x);
+            points.rotateY(rot.y);
+            points.rotateZ(rot.z);
+          }
+          // опустить на плоскость: y = 0
+          const boxAfter = new THREE.Box3().setFromObject(points);
+          const minY = boxAfter.min.y;
+          if (isFinite(minY)) points.position.y -= minY;
+        }
+
         // bbox
         const bbox = new THREE.Box3().setFromObject(points);
         bboxRef.current = bbox;
@@ -338,9 +437,143 @@ export default function Scene3D() {
 
     if (filePath) loadPointCloudFromPath(filePath);
 
+    // mouse move for fly yaw/pitch
+    const onMouseMove = (e: MouseEvent) => {
+      if (!flyModeRef.current) return;
+      const dx = e.movementX || 0;
+      const dy = e.movementY || 0;
+      const rotSpeed = 0.0025;
+      camera.rotation.order = "YXZ";
+      camera.rotation.y -= dx * rotSpeed;
+      camera.rotation.x -= dy * rotSpeed;
+      camera.rotation.x = Math.max(-Math.PI / 2 + 0.001, Math.min(Math.PI / 2 - 0.001, camera.rotation.x));
+    };
+    renderer.domElement.addEventListener("mousemove", onMouseMove);
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      keysRef.current.add(e.key.toLowerCase());
+      if (e.key === "T" || e.key === "t") {
+        flyModeRef.current = !flyModeRef.current;
+        if (flyModeRef.current) renderer.domElement.requestPointerLock?.();
+        else document.exitPointerLock?.();
+      }
+      if (e.key === "O" || e.key === "o") {
+        autoRotateRef.current = !autoRotateRef.current;
+      }
+      if (e.key === "?" || (e.shiftKey && e.key === "/")) {
+        helpVisibleRef.current = !helpVisibleRef.current;
+        const el = document.getElementById("pcd-help-overlay");
+        if (el) el.style.display = helpVisibleRef.current ? "block" : "none";
+      }
+      if (e.key === "H" || e.key === "h") {
+        camera.position.set(0, 0, 5);
+        controls.target.set(0, 0, 0);
+        controls.update();
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      keysRef.current.delete(e.key.toLowerCase());
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.altKey && pointsRef.current) {
+        pointSizeScaleRef.current = Math.max(0.25, Math.min(4, pointSizeScaleRef.current * (e.deltaY < 0 ? 1.1 : 0.9)));
+        e.preventDefault();
+      }
+    };
+    renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+
+    // dblclick focus to point under cursor
+    const onDblClick = (e: MouseEvent) => {
+      if (!renderer.domElement || !pointsRef.current || !cameraRef.current || !controlsRef.current || !raycasterRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const raycaster = raycasterRef.current;
+      raycaster.setFromCamera(mouseNdcRef.current, cameraRef.current);
+      const intersects = raycaster.intersectObject(pointsRef.current, false);
+      if (intersects.length === 0) return;
+      const hit = intersects[0].point.clone();
+      const controls = controlsRef.current;
+      const camera = cameraRef.current;
+      const currentTarget = controls.target.clone();
+      const currentPos = camera.position.clone();
+      const distance = currentPos.distanceTo(currentTarget);
+      const desiredPos = hit.clone().add(currentPos.clone().sub(currentTarget).setLength(distance));
+      // smooth fly
+      const duration = 350; // ms
+      const start = performance.now();
+      const animateFly = () => {
+        const t = (performance.now() - start) / duration;
+        const k = t >= 1 ? 1 : 1 - Math.pow(1 - t, 3);
+        controls.target.lerpVectors(currentTarget, hit, k);
+        camera.position.lerpVectors(currentPos, desiredPos, k);
+        controls.update();
+        if (k < 1) requestAnimationFrame(animateFly);
+      };
+      if (e.shiftKey) {
+        // additive focus: blend old target with new hit before flying
+        hit.lerp(currentTarget, 0.5);
+      }
+      animateFly();
+    };
+    renderer.domElement.addEventListener("dblclick", onDblClick);
+
+    // single click: set target without flying (Ctrl+Click)
+    const onSingleClick = (e: MouseEvent) => {
+      if (!e.ctrlKey) return;
+      if (!renderer.domElement || !pointsRef.current || !cameraRef.current || !controlsRef.current || !raycasterRef.current) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      const raycaster = raycasterRef.current;
+      raycaster.setFromCamera(mouseNdcRef.current, cameraRef.current);
+      const intersects = raycaster.intersectObject(pointsRef.current, false);
+      if (intersects.length === 0) return;
+      const hit = intersects[0].point.clone();
+      controls.target.copy(hit);
+      controls.update();
+    };
+    renderer.domElement.addEventListener("click", onSingleClick);
+
+    // clickable mini-compass: quick preset views
+    const onCompassClick = (e: MouseEvent) => {
+      if (!axesRenderer.domElement) return;
+      const rect = axesRenderer.domElement.getBoundingClientRect();
+      const inside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+      if (!inside) return;
+      // split into 4 quadrants for simple front/side/top views
+      const xRel = (e.clientX - rect.left) / rect.width;
+      const yRel = (e.clientY - rect.top) / rect.height;
+      if (yRel < 0.33) {
+        camera.position.set(0, 5, 0); // top
+      } else if (xRel < 0.33) {
+        camera.position.set(5, 0, 0); // side
+      } else {
+        camera.position.set(0, 0, 5); // front
+      }
+      controls.target.set(0, 0, 0);
+      controls.update();
+    };
+    axesRenderer.domElement.addEventListener("click", onCompassClick);
+
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
+      renderer.domElement.removeEventListener("dblclick", onDblClick);
+      renderer.domElement.removeEventListener("click", onSingleClick as any);
+      renderer.domElement.removeEventListener("mousemove", onMouseMove as any);
+      renderer.domElement.removeEventListener("wheel", onWheel as any);
+      axesRenderer.domElement.removeEventListener("click", onCompassClick as any);
+
+      // save camera to storage
+      try {
+        const pos = camera.position.toArray();
+        const target = controls.target.toArray();
+        localStorage.setItem("pcd_camera", JSON.stringify({ pos, target }));
+      } catch {}
 
       controls.dispose();
       renderer.dispose();
@@ -416,7 +649,7 @@ export default function Scene3D() {
     dispatch(clearCameraCommand());
   }, [cameraCommand, dispatch]);
 
-  // хоткеи R/1/2/3 + пресеты Alt+1..5 / Ctrl+Alt+1..5
+  // хоткеи: R/F/Alt+F/G/X + пресеты Alt+1..9 / Ctrl+Alt+1..9
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!cameraRef.current || !controlsRef.current) return;
@@ -430,24 +663,39 @@ export default function Scene3D() {
         controls.update();
         return;
       }
-      if (key === "1") {
-        cam.position.set(0, 0, 5);
-        controls.target.set(0, 0, 0);
-        controls.update();
-        // обработаем ещё пресеты ниже
-      } else if (key === "2") {
-        cam.position.set(5, 0, 0);
-        controls.target.set(0, 0, 0);
-        controls.update();
-      } else if (key === "3") {
-        cam.position.set(0, 5, 0);
-        controls.target.set(0, 0, 0);
-        controls.update();
+      if (key === "f") {
+        if (pointsRef.current) fitCameraToObject(cam, controls, pointsRef.current, 1.2);
+        return;
+      }
+      if (e.altKey && key === "f") {
+        // fit to cursor cluster
+        if (rendererRef.current && pointsRef.current && raycasterRef.current) {
+          const rect = rendererRef.current.domElement.getBoundingClientRect();
+          const x = (window.innerWidth / 2 - rect.left) / rect.width * 2 - 1;
+          const y = -(window.innerHeight / 2 - rect.top) / rect.height * 2 + 1;
+          mouseNdcRef.current.set(x, y);
+          raycasterRef.current.setFromCamera(mouseNdcRef.current, cam);
+          const hits = raycasterRef.current.intersectObject(pointsRef.current, false);
+          if (hits[0]) {
+            const pivot = hits[0].point.clone();
+            controls.target.copy(pivot);
+            controls.update();
+          }
+        }
+        return;
+      }
+      if (key === "g") {
+        gridRef.current && (gridRef.current.visible = !gridRef.current.visible);
+        return;
+      }
+      if (key === "x") {
+        axesRef.current && (axesRef.current.visible = !axesRef.current.visible);
+        return;
       }
 
-      // пресеты видов: Alt+1..5 -> load, Ctrl+Alt+1..5 -> save
+      // пресеты видов: Alt+1..9 -> load, Ctrl+Alt+1..9 -> save
       const digit = Number(e.key);
-      if (Number.isInteger(digit) && digit >= 1 && digit <= 5) {
+      if (Number.isInteger(digit) && digit >= 1 && digit <= 9) {
         if (e.altKey && e.ctrlKey) {
           // save
           saveViewPreset(digit);
@@ -469,5 +717,29 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
-  return <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef} />;
+  return (
+    <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
+      <div
+        id="pcd-help-overlay"
+        style={{
+          position: "absolute",
+          right: 10,
+          bottom: 10,
+          padding: "10px 12px",
+          background: "rgba(0,0,0,0.6)",
+          color: "#fff",
+          fontSize: 12,
+          lineHeight: 1.4,
+          border: "1px solid #333",
+          borderRadius: 6,
+          display: "none",
+          pointerEvents: "none",
+          whiteSpace: "pre",
+          maxWidth: 380,
+        }}
+      >
+{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
+      </div>
+    </div>
+  );
 }
