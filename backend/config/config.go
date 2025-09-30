@@ -1,11 +1,10 @@
 package config
 
 import (
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
-
-	"github.com/joho/godotenv"
 )
 
 // Config структура, обозначающая структуру .env файла
@@ -25,6 +24,28 @@ type Config struct {
 var AppConfig *Config
 
 // LoadConfig загружает конфигурацию из файла .env
+//
+//	func LoadConfig() {
+//		// Загружаем переменные окружения из файла .env
+//		err := godotenv.Load()
+//		if err != nil {
+//			log.Println("Error loading .env file")
+//		}
+//
+//		// Устанавливаем конфигурационные параметры
+//		AppConfig = &Config{
+//			Port:              getEnv("PORT", "8000"),
+//			MinioEndpoint:     "minio:9000",
+//			BucketName:        "defaultbucket",
+//			MinioRootUser:     "root",
+//			MinioRootPassword: "minio_password",
+//			MinioUseSSL:       false,
+//			DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
+//			RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
+//			RabbitMQExchange:  "pcd_files",
+//			RabbitMQQueue:     "file_metadata_queue",
+//		}
+//	}
 func LoadConfig() {
 	// Загружаем переменные окружения из файла .env
 	err := godotenv.Load()
@@ -34,17 +55,16 @@ func LoadConfig() {
 
 	// Устанавливаем конфигурационные параметры
 	AppConfig = &Config{
-		Port: getEnv("PORT", "8000"),
-
+		Port:              "8000",
 		MinioEndpoint:     "minio:9000",
-		BucketName:        getEnv("MINIO_BUCKET_NAME", "defaultbucket"),
-		MinioRootUser:     getEnv("MINIO_ROOT_USER", "root"),
-		MinioRootPassword: getEnv("MINIO_ROOT_PASSWORD", "minio_password"),
-		MinioUseSSL:       getEnvAsBool("MINIO_USE_SSL", false),
-		DatabaseURL:       getEnv("DATABASE_URL", "postgres://postgres:postgres@db:5432/postgres?sslmode=disable"),
-		RabbitMQURL:       getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/"),
-		RabbitMQExchange:  getEnv("RABBITMQ_EXCHANGE", "pcd_files"),
-		RabbitMQQueue:     getEnv("RABBITMQ_QUEUE", "file_metadata_queue"),
+		BucketName:        "defaultbucket",
+		MinioRootUser:     "root",
+		MinioRootPassword: "minio_password",
+		MinioUseSSL:       false,
+		DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
+		RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
+		RabbitMQExchange:  "pcd_files",
+		RabbitMQQueue:     "file_metadata_queue",
 	}
 }
 

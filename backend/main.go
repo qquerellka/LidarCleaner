@@ -44,31 +44,6 @@ func main() {
 		log.Fatalf("error init postgres storage: %v", err)
 	}
 
-	// Инициализация RabbitMQ клиента
-	//rabbitmqConfig := rabbitmq.Config{
-	//	URL:      config.AppConfig.RabbitMQURL,
-	//	Exchange: config.AppConfig.RabbitMQExchange,
-	//	Queue:    config.AppConfig.RabbitMQQueue,
-	//}
-	//rabbitmqClient, err := rabbitmq.NewClient(rabbitmqConfig)
-	//if err != nil {
-	//	log.Fatalf("Ошибка инициализации RabbitMQ клиента: %v", err)
-	//}
-	//defer rabbitmqClient.Close()
-
-	////Инициализация RabbitMQ consumer
-	//rabbitmqConsumer, err := rabbitmq.NewConsumer(rabbitmqConfig)
-	//if err != nil {
-	//	log.Fatalf("Ошибка инициализации RabbitMQ consumer: %v", err)
-	//}
-	//defer rabbitmqConsumer.Close()
-
-	// Запуск consumer в отдельной горутине
-	//ctx := context.Background()
-	//if err := rabbitmqConsumer.StartConsuming(ctx); err != nil {
-	//	log.Fatalf("Ошибка запуска RabbitMQ consumer: %v", err)
-	//}
-
 	//Инициализация сервисного слоя
 	service := usecase.NewService(postgresRepo, minioClient)
 
@@ -76,9 +51,6 @@ func main() {
 	router := gin.Default()
 	h := handlers.NewMinioHandler(service) // условно
 	h.RegisterRoutes(router)
-
-	//TODO: Сделать GetMinioFileLink в репозитории
-	//TODO: Разобраться с rabbinmq в main  -  Главное чтобы работало, перенесу по слоям потом
 
 	go func() {
 		err := h.StartRabbitWorker()

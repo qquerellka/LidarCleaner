@@ -24,9 +24,27 @@ services:
     networks:
       - app-network
 
+  cv-worker:
+    build:
+      context: .
+      dockerfile: cv_worker/Dockerfile
+    environment:
+      RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
+      MINIO_ENDPOINT: "minio:9000"
+      MINIO_ROOT_USER: "root"
+      MINIO_ROOT_PASSWORD: "minio_password"
+      MINIO_BUCKET_NAME: "${MINIO_BUCKET_NAME}"
+    depends_on:
+      - rabbitmq
+      - minio
+      - app
+    networks:
+      - app-network
+
   minio:
     container_name: minio
-    image: 'bitnami/minio:latest'
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
     volumes:
       - 'minio_data:/data'
     ports:
@@ -38,10 +56,12 @@ services:
       retries: 5
     restart: unless-stopped
     environment:
+#      MINIO_ENDPOINT: "localhost:9000"
       MINIO_ROOT_USER: "root"
       MINIO_ROOT_PASSWORD: "minio_password"
       MINIO_USE_SSL: "${MINIO_USE_SSL}"
       MINIO_DEFAULT_BUCKETS: "${MINIO_BUCKET_NAME}"
+#      MINIO_SERVER_URL: "localhost:9000"
     networks:
       - app-network
 
