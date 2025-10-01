@@ -66,6 +66,9 @@ contextBridge.exposeInMainWorld("api", {
     ipcRenderer.invoke("backend:downloadById", { id, filename }),
   backendUploadFile: (filePath: string, objectKey?: string): Promise<unknown> =>
     ipcRenderer.invoke("backend:uploadFile", { filePath, objectKey }),
+  backendProcessDynamic: (filePath: string, suggestedName?: string): Promise<string> =>
+  ipcRenderer.invoke("backend:processDynamic", { filePath, suggestedName }),
+
 });
 
 // ---- Типы для TS в рендерере ----
@@ -97,6 +100,7 @@ declare global {
       backendHealth: () => Promise<unknown>;
       backendDownloadById: (id: string, filename?: string) => Promise<string>;
       backendUploadFile: (filePath: string, objectKey?: string) => Promise<unknown>;
+      backendProcessDynamic: (filePath: string, suggestedName?: string) => Promise<string>;
     };
   }
 }

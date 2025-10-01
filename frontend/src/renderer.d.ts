@@ -26,6 +26,11 @@ declare global {
       ) => () => void;
       onMenuOpenPCD: (cb: () => void) => () => void;
       readFile: (path: string) => Promise<Uint8Array>;
+       backendHealth: () => Promise<unknown>;
+      backendDownloadById: (id: string, filename?: string) => Promise<string>;
+      backendUploadFile: (filePath: string, objectKey?: string) => Promise<unknown>;
+      backendProcessDynamic: (filePath: string, suggestedName?: string) => Promise<string>;
+
     };
   }
 }
