@@ -24,28 +24,6 @@ type Config struct {
 var AppConfig *Config
 
 // LoadConfig загружает конфигурацию из файла .env
-//
-//	func LoadConfig() {
-//		// Загружаем переменные окружения из файла .env
-//		err := godotenv.Load()
-//		if err != nil {
-//			log.Println("Error loading .env file")
-//		}
-//
-//		// Устанавливаем конфигурационные параметры
-//		AppConfig = &Config{
-//			Port:              getEnv("PORT", "8000"),
-//			MinioEndpoint:     "minio:9000",
-//			BucketName:        "defaultbucket",
-//			MinioRootUser:     "root",
-//			MinioRootPassword: "minio_password",
-//			MinioUseSSL:       false,
-//			DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
-//			RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
-//			RabbitMQExchange:  "pcd_files",
-//			RabbitMQQueue:     "file_metadata_queue",
-//		}
-//	}
 func LoadConfig() {
 	// Загружаем переменные окружения из файла .env
 	err := godotenv.Load()
