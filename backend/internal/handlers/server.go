@@ -12,14 +12,8 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	minioRoutes := router.Group("/files")
 	{
 		minioRoutes.POST("/upload_file", h.CreateOne)
-		//minioRoutes.GET("/metadata/:id", h.GetMetadataAndSendToQueue)
-		minioRoutes.GET("/download/:id", h.GetFileByIDAsync)
+		minioRoutes.POST("/download", h.GetFileByIDAsync)
 
-		//minioRoutes.GET("/:objectID", h.GetOne)
-		//minioRoutes.GET("/many", h.GetMany)
-		//
-		//minioRoutes.DELETE("/:objectID", h.DeleteOne)
-		//minioRoutes.DELETE("/many", h.DeleteMany)
 	}
 
 }

@@ -10,13 +10,13 @@ import (
 	"io"
 	//"lct/config"
 	"lct/internal/domain/errors"
-	"lct/internal/handlers/responses"
+	//"lct/internal/handlers/responses"
 	minio2 "lct/internal/repository/minio"
 	"lct/internal/service"
 	"log"
 	"net/http"
 	"os"
-	"strconv"
+	//"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -33,9 +33,6 @@ func NewMinioHandler(service service.ServiceInt) *Handler {
 	}
 }
 
-//TODO: Сделать ручку обработки: Отправлять метаданные о файле через RabbitMQ
-
-// TODO: Возвращать в CreateOne id файла из postgres
 func (h *Handler) HealthCheck(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  "ok",
@@ -43,136 +40,80 @@ func (h *Handler) HealthCheck(c *gin.Context) {
 	})
 }
 
-// CreateOne обработчик для создания одного объекта в хранилище MinIO из переданных данных.
 func (h *Handler) CreateOne(c *gin.Context) {
-	// Получаем файл из запроса
 	file, err := c.FormFile("file")
 	if err != nil {
-		// Если файл не получен, возвращаем ошибку с соответствующим статусом и сообщением
-		c.JSON(http.StatusBadRequest, errors.ErrorResponse{
-			Status:  http.StatusBadRequest,
-			Error:   "No file is received",
-			Details: err,
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no file received"})
 		return
 	}
 
-	//уникальный ключ для MinIO
 	objectKey := uuid.New().String()
 
-	// Открываем файл для чтения
 	f, err := file.Open()
 	if err != nil {
-		// Если файл не удается открыть, возвращаем ошибку с соответствующим статусом и сообщением
-		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-			Status:  http.StatusInternalServerError,
-			Error:   "Unable to open the file",
-			Details: err,
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot open file"})
 		return
 	}
-	defer f.Close() // Закрываем файл после завершения работы с ним
-
-	// Читаем содержимое файла в байтовый срез
-	fileBytes, err := io.ReadAll(f)
-	if err != nil {
-		// Если не удается прочитать содержимое файла, возвращаем ошибку с соответствующим статусом и сообщением
-		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-			Status:  http.StatusInternalServerError,
-			Error:   "Unable to read the file",
-			Details: err,
-		})
-		return
-	}
-
-	// Создаем структуру FileDataType для хранения данных файла
-	fileData := minio2.FileDataType{
-		FileName: file.Filename, // Имя файла
-		Data:     fileBytes,     // Содержимое файла в виде байтового среза
-	}
+	defer f.Close()
 
 	ctx := c.Request.Context()
-
-	// Сохраняем файл в MinIO с помощью метода CreateOne
-	object, id, err := h.service.CreateOne(&ctx, fileData, file.Filename, file.Size, objectKey)
+	object, _, err := h.service.CreateOne(&ctx, f, file.Size, minio2.FileDataType{
+		FileName: file.Filename,
+		Data:     nil, // <-- не читаем всё в память
+	}, file.Filename, file.Size, objectKey)
 	if err != nil {
-		// Если не удается сохранить файл, возвращаем ошибку с соответствующим статусом и сообщением
-		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-			Status:  http.StatusInternalServerError,
-			Error:   "Unable to save the file",
-			Details: err,
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot save file"})
 		return
 	}
+	defer object.Close()
 
 	c.Writer.Header().Set("Content-Disposition", "attachment; filename=\""+file.Filename+"\"")
 	c.Writer.Header().Set("Content-Type", "application/octet-stream")
 
-	// Копируем данные из объекта MinIO в ответ HTTP
 	if _, err := io.Copy(c.Writer, object); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Ошибка передачи файла: " + err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "stream error: " + err.Error()})
 		return
 	}
-	// Возвращаем успешный ответ с URL-адресом сохраненного файла
-	c.JSON(http.StatusOK, responses.SuccessResponse{
-		Status:  http.StatusOK,
-		Message: "File uploaded successfully",
-		ID:      id,
-		Data:    "none", // URL-адрес загруженного файла
-	})
 }
-
-// GetMetadataAndSendToQueue обработчик для получения метаданных файла по ID и отправки их в RabbitMQ
-//func (h *Handler) GetMetadataAndSendToQueue(c *gin.Context) {
-//	// Получаем ID из параметра URL
-//	idParam := c.Param("id")
-//	id, err := strconv.ParseInt(idParam, 10, 64)
-//	if err != nil {
-//		c.JSON(http.StatusBadRequest, errors.ErrorResponse{
-//			Status:  http.StatusBadRequest,
-//			Error:   "Неверный формат ID",
-//			Details: err,
-//		})
-//		return
-//	}
-//
-//	ctx := c.Request.Context()
-//
-//	// Получаем метаданные и отправляем в RabbitMQ
-//	metadata, err := h.service.GetMetadataAndSendToQueue(&ctx, id)
-//	if err != nil {
-//		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-//			Status:  http.StatusInternalServerError,
-//			Error:   "Ошибка при получении метаданных или отправке в RabbitMQ",
-//			Details: err,
-//		})
-//		return
-//	}
-//
-//	// Возвращаем успешный ответ с метаданными
-//	c.JSON(http.StatusOK, responses.SuccessResponse{
-//		Status:  http.StatusOK,
-//		Message: "Метаданные получены и отправлены в RabbitMQ",
-//
-//		Data:    metadata,
-//	})
-//}
 
 // GetFileByID обработчик для получения файла по ID после обработки CV worker
 func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	// Получаем ID файла
-	idParam := c.Param("id")
-	id, err := strconv.ParseInt(idParam, 10, 64)
+	//idParam := c.Param("id")
+	//id, err := strconv.ParseInt(idParam, 10, 64)
+	//if err != nil {
+	//	c.JSON(http.StatusBadRequest, errors.ErrorResponse{
+	//		Status:  http.StatusBadRequest,
+	//		Error:   "Неверный формат ID",
+	//		Details: err,
+	//	})
+	//	return
+	//}
+	file, err := c.FormFile("file")
 	if err != nil {
-		c.JSON(http.StatusBadRequest, errors.ErrorResponse{
-			Status:  http.StatusBadRequest,
-			Error:   "Неверный формат ID",
-			Details: err,
-		})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no file received"})
 		return
 	}
 
+	objectKey := uuid.New().String()
+
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot open file"})
+		return
+	}
+	defer f.Close()
+
 	ctx := c.Request.Context()
+	_, id, err := h.service.CreateOne(&ctx, f, file.Size, minio2.FileDataType{
+		FileName: file.Filename,
+		Data:     nil, // <-- не читаем всё в память
+	}, file.Filename, file.Size, objectKey)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot save file"})
+		return
+	}
+	//defer object.Close()
 
 	// Получаем метаданные файла
 	metadata, err := h.service.GetMetaDataByID(&ctx, id)
@@ -269,22 +210,36 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 			if msg.CorrelationId == corrID {
 				var response map[string]string
 				json.Unmarshal(msg.Body, &response)
-				processedMinioKey := response["minio_key"]
-				link, err := h.service.GetMinioFileLink(processedMinioKey)
+				//processedMinioKey := response["minio_key"]
+
+				object, err := h.service.GetOne(f, file.Size, minio2.FileDataType{
+					FileName: file.Filename,
+					Data:     nil, // <-- не читаем всё в память
+				}, objectKey)
 				if err != nil {
-					c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-						Status:  http.StatusGatewayTimeout,
-						Error:   "Timeout ожидания обработки файла",
-						Details: nil,
-					})
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot save file"})
 				}
-				c.JSON(http.StatusOK, responses.SuccessResponse{
-					Status:  http.StatusOK,
-					Message: "File processed successfully",
-					ID:      id,
-					Data:    link,
-				})
-				return
+				c.Writer.Header().Set("Content-Disposition", "attachment; filename=\""+file.Filename+"\"")
+				c.Writer.Header().Set("Content-Type", "application/octet-stream")
+
+				if _, err := io.Copy(c.Writer, object); err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "stream error: " + err.Error()})
+					return
+				}
+				//if err != nil {
+				//	c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
+				//		Status:  http.StatusGatewayTimeout,
+				//		Error:   "Timeout ожидания обработки файла",
+				//		Details: nil,
+				//	})
+				//}
+				//c.JSON(http.StatusOK, responses.SuccessResponse{
+				//	Status:  http.StatusOK,
+				//	Message: "File processed successfully",
+				//	ID:      id,
+				//	Data:    link,
+				//})
+				//return
 			}
 		case <-timeout:
 			c.JSON(http.StatusGatewayTimeout, errors.ErrorResponse{
