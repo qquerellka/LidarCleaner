@@ -264,6 +264,7 @@ go run .
 ## Сравнение
 
 Ниже представлены два изображения для визуального сравнения. 
+
 (Так же для теста других `.ply` или `.pcd` файлов можно использовать блокнот [inference.ipynb](https://github.com/qquerellka/LidarCleaner/blob/dev/inference.ipynb) )
 
 <table>
