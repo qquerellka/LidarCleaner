@@ -258,3 +258,28 @@ go run .
   
 ### Примеры обработанных файлов можно посмотреть по ссылке на гугл диске: https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing
 
+## Сравнение
+
+Ниже представлены два изображения для визуального сравнения.
+
+<table>
+  <tr>
+    <td align="center"><strong>До</strong></td>
+    <td align="center"><strong>После</strong></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp1.jpeg" alt="До" width="100%"></td>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp1.jpeg" alt="После" width="100%"></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td align="center"><strong>До</strong></td>
+    <td align="center"><strong>После</strong></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp2.jpeg" alt="До" width="100%"></td>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp2.jpeg" alt="После" width="100%"></td>
+  </tr>
+</table>
