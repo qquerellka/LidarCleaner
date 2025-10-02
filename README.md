@@ -262,7 +262,7 @@ go run .
 [📥 Посмотреть файлы на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
 
 ### Ссылки на модели:
-[model_for_action](https://drive.google.com/file/d/10Ki47nx4Y5HdIdCFVNeZQijL_kU3N7Zr/view?usp=sharing)
+[model_for_action](https://drive.google.com/file/d/10Ki47nx4Y5HdIdCFVNeZQijL_kU3N7Zr/view?usp=sharing),
 [model_for_static](https://drive.google.com/file/d/1JONN8qzJO-GcnOFNhZZNlPNaZOpCqaUD/view?usp=sharing)
 
 
