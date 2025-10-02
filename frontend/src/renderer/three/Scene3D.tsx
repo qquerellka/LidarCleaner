@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import * as THREE from "three";
 import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
@@ -66,6 +66,18 @@ export default function Scene3D() {
   const autoRotateRef = useRef<boolean>(false);
   const keysRef = useRef<Set<string>>(new Set());
   const pointSizeScaleRef = useRef<number>(1);
+
+  // Manual edit state
+  const [editMode, setEditMode] = useState(false);
+  const [brushRadius, setBrushRadius] = useState(0.05); // world units after normalization
+  const isErasingRef = useRef(false);
+  const pendingDeleteRef = useRef<Set<number>>(new Set());
+  const lastFileNameRef = useRef<string | null>(null);
+  const [brushScreen, setBrushScreen] = useState<{ x: number; y: number; visible: boolean; pxRadius: number }>(
+    { x: 0, y: 0, visible: false, pxRadius: 12 }
+  );
+  const [applyInstantly, setApplyInstantly] = useState(true);
+  const lastHitRef = useRef<THREE.Vector3 | null>(null);
 
   // BBox
   const bboxRef = useRef<THREE.Box3 | null>(null);
@@ -331,7 +343,8 @@ export default function Scene3D() {
         const data = await window.api.readFile(path);
         const ab = toTightArrayBuffer(data) as ArrayBuffer;
 
-        const ext = path.split(".").pop()?.toLowerCase();
+  const ext = path.split(".").pop()?.toLowerCase();
+  lastFileNameRef.current = path.split("/").pop() || null;
         let points: THREE.Points;
         if (ext === "pcd") {
           const loader = new PCDLoader();
@@ -439,6 +452,19 @@ export default function Scene3D() {
 
     // mouse move for fly yaw/pitch
     const onMouseMove = (e: MouseEvent) => {
+      // Track cursor in NDC for raycasting / brush
+      if (renderer && camera) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        if (editMode) updateBrushOverlay(e.clientX - rect.left, e.clientY - rect.top);
+      }
+
+      // While erasing, accumulate points under brush
+      if (isErasingRef.current) {
+        brushCollectAtCursor();
+      }
+
       if (!flyModeRef.current) return;
       const dx = e.movementX || 0;
       const dy = e.movementY || 0;
@@ -717,8 +743,256 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
+  // --- Manual erase helpers ---
+  function brushCollectAtCursor() {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const raycaster = raycasterRef.current;
+    const points = pointsRef.current as THREE.Points | null;
+    if (!scene || !camera || !raycaster || !points) return;
+
+    raycaster.setFromCamera(mouseNdcRef.current, camera);
+    const intersects = raycaster.intersectObject(points, false);
+    if (!intersects.length) return;
+
+    const hit = intersects[0].point.clone(); // world
+    lastHitRef.current = hit.clone();
+    const localHit = hit.clone();
+    points.worldToLocal(localHit);
+
+    const geom = points.geometry as THREE.BufferGeometry;
+    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
+    const radius = brushRadius;
+    const r2 = radius * radius;
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const dx = posAttr.getX(i) - localHit.x;
+      const dy = posAttr.getY(i) - localHit.y;
+      const dz = posAttr.getZ(i) - localHit.z;
+      if (dx * dx + dy * dy + dz * dz <= r2) {
+        pendingDeleteRef.current.add(i);
+      }
+    }
+
+    if (applyInstantly) {
+      applyDeletion();
+    }
+  }
+
+  function updateBrushOverlay(x: number, y: number) {
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const points = pointsRef.current as THREE.Points | null;
+    if (!renderer || !camera || !points) {
+      setBrushScreen({ x, y, visible: true, pxRadius: brushScreen.pxRadius });
+      return;
+    }
+
+    // Try to compute pixel radius by projecting a world-offset vector around last hit or target
+    const rect = renderer.domElement.getBoundingClientRect();
+    const center = lastHitRef.current ? lastHitRef.current.clone() : controlsRef.current?.target.clone() || new THREE.Vector3();
+    // build a right vector perpendicular to view
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
+    const p1 = center.clone();
+    const p2 = center.clone().add(right.multiplyScalar(brushRadius));
+    const ndc1 = p1.clone().project(camera);
+    const ndc2 = p2.clone().project(camera);
+    const dx = (ndc2.x - ndc1.x) * (rect.width / 2);
+    const dy = (ndc2.y - ndc1.y) * (-rect.height / 2);
+    const pxRadius = Math.max(4, Math.min(200, Math.hypot(dx, dy)));
+    setBrushScreen({ x, y, visible: true, pxRadius });
+  }
+
+  function applyDeletion() {
+    const points = pointsRef.current as THREE.Points | null;
+    if (!points || pendingDeleteRef.current.size === 0) return;
+
+    const geom = points.geometry as THREE.BufferGeometry;
+    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
+    const colAttr = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
+
+    const keepCount = posAttr.count - pendingDeleteRef.current.size;
+    const newPos = new Float32Array(keepCount * 3);
+    const newCol = colAttr ? new Float32Array(keepCount * 3) : undefined;
+
+    let w = 0;
+    for (let i = 0; i < posAttr.count; i++) {
+      if (pendingDeleteRef.current.has(i)) continue;
+      newPos[w * 3 + 0] = posAttr.getX(i);
+      newPos[w * 3 + 1] = posAttr.getY(i);
+      newPos[w * 3 + 2] = posAttr.getZ(i);
+      if (newCol && colAttr) {
+        newCol[w * 3 + 0] = colAttr.getX(i);
+        newCol[w * 3 + 1] = colAttr.getY(i);
+        newCol[w * 3 + 2] = colAttr.getZ(i);
+      }
+      w++;
+    }
+
+    const newGeom = new THREE.BufferGeometry();
+    newGeom.setAttribute("position", new THREE.BufferAttribute(newPos, 3));
+    if (newCol) newGeom.setAttribute("color", new THREE.BufferAttribute(newCol, 3));
+
+    const mat = points.material as THREE.PointsMaterial;
+    const next = new THREE.Points(newGeom, mat);
+    next.position.copy(points.position);
+    next.rotation.copy(points.rotation);
+    next.scale.copy(points.scale);
+
+    const scene = sceneRef.current!;
+    scene.remove(points);
+    pointsRef.current = next;
+    scene.add(next);
+
+    bboxRef.current = new THREE.Box3().setFromObject(next);
+    if (bboxHelperRef.current) {
+      scene.remove(bboxHelperRef.current);
+      bboxHelperRef.current = null;
+    }
+    if (showBBox) {
+      const helper = new THREE.Box3Helper(bboxRef.current, 0x4444ff);
+      scene.add(helper);
+      bboxHelperRef.current = helper;
+    }
+
+    pendingDeleteRef.current.clear();
+  }
+
+  function onPointerDown(e: React.MouseEvent) {
+    if (!editMode || e.button !== 0) return;
+    e.preventDefault();
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    if (renderer && camera) {
+      const rect = renderer.domElement.getBoundingClientRect();
+      mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+      setBrushScreen((s) => ({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true, pxRadius: s.pxRadius }));
+    }
+    isErasingRef.current = true;
+    // Temporarily disable OrbitControls to prevent camera rotation while erasing
+    if (controlsRef.current) controlsRef.current.enabled = false;
+    brushCollectAtCursor();
+  }
+  function onPointerUp(e: React.MouseEvent) {
+    if (!editMode || e.button !== 0) return;
+    e.preventDefault();
+    isErasingRef.current = false;
+    if (controlsRef.current) controlsRef.current.enabled = true;
+    setBrushScreen((s) => ({ ...s, visible: false }));
+    applyDeletion();
+  }
+  function onPointerLeave() {
+    if (!editMode) return;
+    if (controlsRef.current) controlsRef.current.enabled = true;
+    setBrushScreen((s) => ({ ...s, visible: false }));
+    if (isErasingRef.current) {
+      isErasingRef.current = false;
+      applyDeletion();
+    }
+  }
+
+  async function exportCurrentPLY() {
+    const pts = pointsRef.current;
+    if (!pts) return;
+    const geom = pts.geometry as THREE.BufferGeometry;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const col = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
+
+    const hasColor = !!col;
+    const n = pos.count;
+    const lines: string[] = [];
+    lines.push("ply");
+    lines.push("format ascii 1.0");
+    lines.push(`element vertex ${n}`);
+    lines.push("property float x");
+    lines.push("property float y");
+    lines.push("property float z");
+    if (hasColor) {
+      lines.push("property uchar red");
+      lines.push("property uchar green");
+      lines.push("property uchar blue");
+    }
+    lines.push("end_header");
+
+    for (let i = 0; i < n; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      if (hasColor && col) {
+        const r = Math.max(0, Math.min(255, Math.round(col.getX(i) * 255)));
+        const g = Math.max(0, Math.min(255, Math.round(col.getY(i) * 255)));
+        const b = Math.max(0, Math.min(255, Math.round(col.getZ(i) * 255)));
+        lines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+      } else {
+        lines.push(`${x} ${y} ${z}`);
+      }
+    }
+
+    const content = lines.join("\n");
+    const suggested = (lastFileNameRef.current || "points").replace(/\.[^.]+$/, "") + "-edited.ply";
+    await window.api.saveFile({ suggestedName: suggested, data: content });
+  }
+
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
+    <div
+      style={{ width: "100%", height: "100%", position: "relative", cursor: editMode ? "crosshair" : undefined }}
+      ref={mountRef}
+      onMouseDown={onPointerDown}
+      onMouseUp={onPointerUp}
+      onMouseLeave={onPointerLeave}
+    >
+      {/* Manual edit toolbar */}
+      <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 6, display: "flex", gap: 10, alignItems: "center", zIndex: 2 }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} />
+          <span>Erase mode</span>
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: editMode ? 1 : 0.5 }}>
+          <span>Brush</span>
+          <input
+            type="range"
+            min={0.005}
+            max={0.2}
+            step={0.005}
+            value={brushRadius}
+            onChange={(e) => setBrushRadius(parseFloat(e.target.value))}
+            disabled={!editMode}
+          />
+        </label>
+        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <input type="checkbox" checked={applyInstantly} onChange={(e) => setApplyInstantly(e.target.checked)} />
+          <span>Apply instantly</span>
+        </label>
+        <button onClick={exportCurrentPLY} title="Export current points as PLY">Export PLY</button>
+      </div>
+      {/* Brush cursor overlay */}
+      {editMode && brushScreen.visible && (
+        <div
+          style={{
+            position: "absolute",
+            left: Math.max(0, brushScreen.x - 9999),
+            top: Math.max(0, brushScreen.y - 9999),
+            pointerEvents: "none",
+            zIndex: 1,
+          }}
+        >
+          {/* Approximate brush radius in pixels by projecting radius at current distance; for simplicity use fixed size as hint */}
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(${brushScreen.x - brushScreen.pxRadius}px, ${brushScreen.y - brushScreen.pxRadius}px)`,
+              width: brushScreen.pxRadius * 2,
+              height: brushScreen.pxRadius * 2,
+              borderRadius: "50%",
+              border: "1px solid rgba(255,255,255,0.7)",
+              background: "rgba(255,255,255,0.1)",
+            }}
+          />
+        </div>
+      )}
       <div
         id="pcd-help-overlay"
         style={{
