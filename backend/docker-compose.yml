@@ -1,5 +1,3 @@
-version: '3'
-
 services:
   app:
     build:
@@ -26,14 +24,21 @@ services:
 
   cv-worker:
     build:
-      context: .
-      dockerfile: cv_worker/Dockerfile
+      context: ./cv_worker
+      dockerfile: Dockerfile
     environment:
       RABBITMQ_URL: "amqp://guest:guest@rabbitmq:5672/"
       MINIO_ENDPOINT: "minio:9000"
       MINIO_ROOT_USER: "root"
       MINIO_ROOT_PASSWORD: "minio_password"
       MINIO_BUCKET_NAME: "${MINIO_BUCKET_NAME}"
+      PYTHONUNBUFFERED: 1
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 2G
     depends_on:
       - rabbitmq
       - minio

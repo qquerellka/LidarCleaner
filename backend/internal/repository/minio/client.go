@@ -114,9 +114,10 @@ func (m *minioClient) GetOne(r io.Reader, size int64, file FileDataType, objectI
 		minio.GetObjectOptions{},
 	)
 	if err != nil {
+		log.Printf("ошибка при получении файла")
 		return nil, fmt.Errorf("ошибка при получении объекта %s: %v", file.FileName, err)
 	}
-	log.Println("файл загружен в minio")
+	log.Println("файл получен из minio")
 	return object, nil
 
 }

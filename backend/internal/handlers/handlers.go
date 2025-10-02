@@ -4,10 +4,13 @@ import (
 	//"context"
 	"encoding/json"
 	"fmt"
+
 	//"github.com/minio/minio-go/v7"
 	//"github.com/minio/minio-go/v7/pkg/credentials"
-	amqp "github.com/rabbitmq/amqp091-go"
 	"io"
+
+	amqp "github.com/rabbitmq/amqp091-go"
+
 	//"lct/config"
 	"lct/internal/domain/errors"
 	//"lct/internal/handlers/responses"
@@ -16,6 +19,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+
 	//"strconv"
 	"time"
 
@@ -96,6 +100,7 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	}
 
 	objectKey := uuid.New().String()
+	log.Printf("objectkey исходного файла: %s", objectKey)
 
 	f, err := file.Open()
 	if err != nil {
@@ -127,7 +132,9 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	}
 
 	// Подключаемся к RabbitMQ
-	conn, err := amqp.Dial(os.Getenv("RABBITMQ_URL"))
+	conn, err := amqp.DialConfig(os.Getenv("RABBITMQ_URL"), amqp.Config{
+		Heartbeat: 10 * time.Minute, // Увеличить heartbeat
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
 			Status:  http.StatusInternalServerError,
@@ -203,29 +210,54 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	}
 
 	// Ждём ответа от воркера
-	timeout := time.After(60 * time.Second)
+	timeout := time.After(600 * time.Second)
 	for {
 		select {
 		case msg := <-msgs:
 			if msg.CorrelationId == corrID {
 				var response map[string]string
-				json.Unmarshal(msg.Body, &response)
-				//processedMinioKey := response["minio_key"]
+				err := json.Unmarshal(msg.Body, &response)
+				if err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot unmarshal response"})
+				}
+				log.Println(response)
+				processedMinioKey := response["minio_key"]
+				processedFileName := response["filename"]
+				//processedFileSize := response["minio_key"]
 
 				object, err := h.service.GetOne(f, file.Size, minio2.FileDataType{
-					FileName: file.Filename,
+					FileName: processedFileName,
 					Data:     nil, // <-- не читаем всё в память
-				}, objectKey)
+				}, processedMinioKey)
 				if err != nil {
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot save file"})
+					return
 				}
-				c.Writer.Header().Set("Content-Disposition", "attachment; filename=\""+file.Filename+"\"")
-				c.Writer.Header().Set("Content-Type", "application/octet-stream")
+				defer object.Close()
+				stat, err := object.Stat()
+				if err != nil {
+					log.Printf("Ошибка при получении метаданных объекта: %v", err)
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot get object metadata: " + err.Error()})
+					return
+				}
+				log.Printf("Размер объекта: %d байт", stat.Size)
+				if stat.Size == 0 {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "object is empty"})
+					return
+				}
 
+				c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", processedFileName))
+				c.Writer.Header().Set("Content-Type", "application/x-ply")
+				c.Writer.Header().Set("Content-Length", fmt.Sprintf("%d", stat.Size))
+
+				log.Println("Начинаем передачу файла клиенту")
 				if _, err := io.Copy(c.Writer, object); err != nil {
+					log.Printf("Ошибка при передаче файла: %v", err)
 					c.JSON(http.StatusInternalServerError, gin.H{"error": "stream error: " + err.Error()})
 					return
 				}
+				log.Println("Файл успешно передан клиенту")
+				return
 				//if err != nil {
 				//	c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
 				//		Status:  http.StatusGatewayTimeout,
@@ -252,106 +284,8 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	}
 }
 
-func (h *Handler) StartRabbitWorker() error {
-	conn, err := amqp.Dial(os.Getenv("RABBITMQ_URL"))
-	if err != nil {
-		return err
-	}
-	ch, err := conn.Channel()
-	if err != nil {
-		return err
-	}
-
-	// объявляем exchange
-	err = ch.ExchangeDeclare(
-		"pcd_files", // exchange
-		"fanout",
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	// объявляем очередь
-	q, err := ch.QueueDeclare(
-		"file_metadata_queue", // очередь из конфига
-		true,
-		false,
-		false,
-		false,
-		nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	// биндим очередь к exchange
-	err = ch.QueueBind(
-		q.Name,
-		"",
-		"pcd_files",
-		false,
-		nil,
-	)
-	if err != nil {
-		return err
-	}
-
-	msgs, err := ch.Consume(q.Name, "", false, false, false, false, nil)
-	if err != nil {
-		return err
-	}
-
-	log.Println("RabbitMQ worker started...")
-
-	for msg := range msgs {
-		go func(m amqp.Delivery) {
-			log.Printf("Received message: %s", string(m.Body))
-
-			// тут парсим JSON с метаданными
-			var meta map[string]string
-			if err := json.Unmarshal(m.Body, &meta); err != nil {
-				log.Printf("Ошибка разбора JSON: %v", err)
-				m.Ack(false)
-				return
-			}
-
-			// имитация обработки файла
-			processedKey := "processed/" + meta["filename"]
-
-			// формируем ответ
-			response := map[string]string{
-				"id":        meta["id"],
-				"filename":  meta["filename"],
-				"minio_key": processedKey,
-			}
-			respBody, _ := json.Marshal(response)
-
-			// публикуем ответ в reply_to
-			if m.ReplyTo != "" {
-				err = ch.Publish(
-					"",        // default exchange
-					m.ReplyTo, // reply queue
-					false,
-					false,
-					amqp.Publishing{
-						ContentType:   "application/json",
-						CorrelationId: m.CorrelationId,
-						Body:          respBody,
-					},
-				)
-				if err != nil {
-					log.Printf("Ошибка отправки ответа: %v", err)
-				}
-			}
-
-			m.Ack(false)
-		}(msg)
-	}
-
-	return nil
-}
+// StartRabbitWorker - удален, используется Python CV worker
+// func (h *Handler) StartRabbitWorker() error {
+//	// Имитация обработки удалена - используется Python CV worker
+//	return nil
+// }
