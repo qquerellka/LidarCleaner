@@ -51,15 +51,6 @@ func main() {
 	router := gin.Default()
 	h := handlers.NewMinioHandler(service) // условно
 	h.RegisterRoutes(router)
-
-	// CV worker запускается отдельно в docker-compose
-	// go func() {
-	//	err := h.StartRabbitWorker()
-	//	if err != nil {
-	//		log.Fatalf("Failed to start RabbitMQ worker: %v", err)
-	//	}
-	// }()
-
 	// Запуск сервера Gin
 	port := config.AppConfig.Port // Мы берем
 	err = router.Run(":" + port)

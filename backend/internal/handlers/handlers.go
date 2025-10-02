@@ -82,17 +82,6 @@ func (h *Handler) CreateOne(c *gin.Context) {
 
 // GetFileByID обработчик для получения файла по ID после обработки CV worker
 func (h *Handler) GetFileByIDAsync(c *gin.Context) {
-	// Получаем ID файла
-	//idParam := c.Param("id")
-	//id, err := strconv.ParseInt(idParam, 10, 64)
-	//if err != nil {
-	//	c.JSON(http.StatusBadRequest, errors.ErrorResponse{
-	//		Status:  http.StatusBadRequest,
-	//		Error:   "Неверный формат ID",
-	//		Details: err,
-	//	})
-	//	return
-	//}
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no file received"})
@@ -118,9 +107,6 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "cannot save file"})
 		return
 	}
-	//defer object.Close()
-
-	// Получаем метаданные файла
 	metadata, err := h.service.GetMetaDataByID(&ctx, id)
 	if err != nil {
 		c.JSON(http.StatusNotFound, errors.ErrorResponse{
@@ -210,7 +196,7 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 	}
 
 	// Ждём ответа от воркера
-	timeout := time.After(600 * time.Second)
+	timeout := time.After(2 * time.Hour)
 	for {
 		select {
 		case msg := <-msgs:
@@ -258,20 +244,6 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 				}
 				log.Println("Файл успешно передан клиенту")
 				return
-				//if err != nil {
-				//	c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
-				//		Status:  http.StatusGatewayTimeout,
-				//		Error:   "Timeout ожидания обработки файла",
-				//		Details: nil,
-				//	})
-				//}
-				//c.JSON(http.StatusOK, responses.SuccessResponse{
-				//	Status:  http.StatusOK,
-				//	Message: "File processed successfully",
-				//	ID:      id,
-				//	Data:    link,
-				//})
-				//return
 			}
 		case <-timeout:
 			c.JSON(http.StatusGatewayTimeout, errors.ErrorResponse{
@@ -283,9 +255,3 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 		}
 	}
 }
-
-// StartRabbitWorker - удален, используется Python CV worker
-// func (h *Handler) StartRabbitWorker() error {
-//	// Имитация обработки удалена - используется Python CV worker
-//	return nil
-// }
