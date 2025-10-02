@@ -138,4 +138,6 @@ await window.api.backendHealth()
 6.  **Валидация**:
     -   **Метрики**: Accuracy, mIoU.
     -   **Визуализация**: CloudCompare.
+  
+### Примеры обработанных файлов можно посмотреть по ссылке на гугл диске: https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing
 
