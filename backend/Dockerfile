@@ -35,3 +35,4 @@ COPY --from=build /build/migrations /app/migrations
 EXPOSE 9000
 
 CMD ["/app/app"]
+
