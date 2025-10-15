@@ -202,3 +202,87 @@ go run .
 - Поддержка форматов LAS/LAZ, конвертация в/из `.pcd`.
 - Маскирование/редактирование областей вручную перед автоочисткой.
 - Предпросмотр диффа «до/после» и метрики качества.
+
+## Редактор лидарных карт: ML-компонент
+
+**Компонент для автоматизации удаления динамики (движущиеся объекты/стоящие авто) из лидарных PCD/Ply-облаков для статических карт.**
+
+### 🛠️ Стек технологий
+
+-   **Языки/ML**: `Python`, `PyTorch (PointNet++)`
+-   **Обработка данных**: `PCL`, `Open3D`, `CloudCompare`
+-   **ОС/Инструменты**: `Jupyter`, `Colab`, `Kaggle`
+
+### 📊 Датасеты и обработка
+
+#### KITTI-360
+
+-   **Тип**: Динамические объекты.
+-   **Обработка**:
+    -   Фильтрация шумов.
+    -   Нормализация (x, y, z + intensity).
+    -   Oversampling + Downsampling majority
+    -   Object Isolation
+    -   Аугментация (ротации, scaling).
+    -   Разметка классов.
+-   **Назначение**: Объекты в движении.
+-   **Итоговая метрика модели**: mIoU = 0.5388
+
+#### Toronto-3D
+
+-   **Тип**: Статические элементы (стоящие авто).
+-   **Обработка**:
+    -   Конвертация PCD.
+    -   Фильтрация.
+    -   Аугментация (сдвиги, jitter).
+    -   Баланс классов.
+-   **Назначение**: Для модели на стоящие объекты.
+
+#### Общее
+
+-   **Разделение**: Train/val/test (80/10/10).
+-   **Форматы**: Унификация форматов.
+
+### 🚀 ML Pipeline
+
+1.  **Вход**: PCD-файл (e.g., `points.pcd`, `points.ply`).
+2.  **Предобработка**: Фильтрация шумов, нормализация.
+3.  **Сегментация**:
+    -   **Модель 1 (PointNet++ на KITTI-360)**: 0.6 * Loss Focal + 0.4 * Lovász, для объектов в движении.
+    -   **Модель 2 (PointNet++ на Toronto-3D)**: Loss Focal + IoU + Dice, для стоящих авто.
+4.  **Удаление**: Слияние масок, исключение точек.
+5.  **Постобработка**: Заполнение дыр средней высотой (Open3D), вывод `processed_points.pcd`.
+6.  **Валидация**:
+    -   **Метрики**: Accuracy, mIoU. 
+    -   **Визуализация**: CloudCompare.
+  
+### Примеры обработанных файлов можно посмотреть по ссылке на гугл диске:
+
+[📥 Посмотреть файлы на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
+
+### Ссылки на модели:
+[model_for_action](https://drive.google.com/file/d/10Ki47nx4Y5HdIdCFVNeZQijL_kU3N7Zr/view?usp=sharing),
+[model_for_static](https://drive.google.com/file/d/1JONN8qzJO-GcnOFNhZZNlPNaZOpCqaUD/view?usp=sharing)
+
+
+## Сравнение
+
+Ниже представлены два изображения для визуального сравнения. 
+
+(Так же для теста других `.ply` или `.pcd` файлов можно использовать блокнот [inference.ipynb](https://github.com/qquerellka/LidarCleaner/blob/dev/inference.ipynb) )
+
+<table>
+  <tr>
+    <td align="center"><strong>До</strong></td>
+    <td align="center"><strong>После</strong></td>
+  </tr>
+  <tr>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp1.jpeg" alt="До" width="100%"></td>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp1.jpeg" alt="После" width="100%"></td>
+  </tr>
+    <tr>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp2.jpeg" alt="До" width="100%"></td>
+    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp2.jpeg" alt="После" width="100%"></td>
+  </tr>
+</table>
+
