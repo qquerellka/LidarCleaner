@@ -145,10 +145,38 @@ contextBridge.exposeInMainWorld("api", {
   },
 
   // Подписка на прогресс обработки на backend (processDynamic)
-  onProcessProgress: (cb: (p: { received: number; total: number | null; percent: number | null }) => void) => {
-    const handler = (_: unknown, payload: { received: number; total: number | null; percent: number | null }) => cb(payload);
+  onProcessProgress: (cb: (p: { taskId: string; received: number; total: number | null; percent: number | null }) => void) => {
+    const handler = (_: unknown, payload: { taskId: string; received: number; total: number | null; percent: number | null }) => cb(payload);
     ipcRenderer.on("backend:process-progress", handler);
     return () => ipcRenderer.removeListener("backend:process-progress", handler);
+  },
+
+  // Cancel running processing task
+  backendCancelProcess: (taskId: string): Promise<{ ok: boolean; message?: string }> => {
+    const log = logWrap("backend:cancelProcess", { taskId });
+    return ipcRenderer
+      .invoke("backend:cancelProcess", { taskId })
+      .then((res) => {
+        log.done(res);
+        return res as { ok: boolean; message?: string };
+      })
+      .catch((e) => {
+        log.done(undefined, e);
+        throw e;
+      });
+  },
+
+  // Events for done/error
+  onProcessDone: (cb: (p: { taskId: string; path: string }) => void) => {
+    const handler = (_: unknown, payload: { taskId: string; path: string }) => cb(payload);
+    ipcRenderer.on("backend:process-done", handler);
+    return () => ipcRenderer.removeListener("backend:process-done", handler);
+  },
+
+  onProcessError: (cb: (p: { taskId: string; error: string }) => void) => {
+    const handler = (_: unknown, payload: { taskId: string; error: string }) => cb(payload);
+    ipcRenderer.on("backend:process-error", handler);
+    return () => ipcRenderer.removeListener("backend:process-error", handler);
   },
 
   // Событие из меню "File/Open PCD…"

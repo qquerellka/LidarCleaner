@@ -9,6 +9,10 @@ export default function FileLoader() {
   const filePath = useSelector((s: RootState) => s.ui.filePath);
   const [busy, setBusy] = useState(false);
   const [uploadPct, setUploadPct] = useState<number | null>(null);
+  // processPct removed — using a simple phantom loader (animated dots)
+  const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
+  const currentTaskIdRef = useRef<string | null>(null);
+  const [processDots, setProcessDots] = useState<string>("");
   const uploadIdRef = useRef<string | null>(null);
   const unsubUploadRef = useRef<null | (() => void)>(null);
 
@@ -19,20 +23,52 @@ export default function FileLoader() {
         setUploadPct(p.percent);
       }
     });
-    // Подписка на прогресс обработки
+    // Подписка на прогресс обработки (включая taskId) — но мы показываем просто phantom loader,
+    // поэтому здесь мы лишь фильтруем события, не показывая точный процент.
     const unsubProc = window.api.onProcessProgress((p) => {
-      if (p && p.percent != null) {
-        setUploadPct((p.percent ?? 0) / 100);
-      } else {
-        // indeterminate — show spinner by setting null
-        setUploadPct(null);
-      }
+      if (currentTaskIdRef.current && p.taskId !== currentTaskIdRef.current) return;
+      // no-op for numeric UI progress — phantom loader will be shown while busy
     });
+
+    const unsubDone = window.api.onProcessDone((payload) => {
+      if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
+      // end phantom loader and open result
+      setBusy(false);
+      setCurrentTaskId(null);
+      currentTaskIdRef.current = null;
+      dispatch(setFilePath(payload.path));
+    });
+
+    const unsubErr = window.api.onProcessError((payload) => {
+      if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
+      setBusy(false);
+      setCurrentTaskId(null);
+      currentTaskIdRef.current = null;
+        alert(`Processing error: ${payload.error}`);
+    });
+
     return () => {
       unsubUploadRef.current?.();
       unsubProc?.();
+      unsubDone?.();
+      unsubErr?.();
     };
   }, []);
+
+  // simple dots animation while processing (phantom loader)
+  useEffect(() => {
+    let handle: number | null = null;
+    if (busy && currentTaskId) {
+      handle = window.setInterval(() => {
+        setProcessDots((d) => (d.length >= 3 ? "" : d + "."));
+      }, 500);
+    } else {
+      setProcessDots("");
+    }
+    return () => {
+      if (handle) window.clearInterval(handle);
+    };
+  }, [busy, currentTaskId]);
 
   const handleOpen = async () => {
     const path = await window.api.openPCD();
@@ -54,16 +90,20 @@ export default function FileLoader() {
     if (!filePath) return;
     setBusy(true);
     try {
-      // отправляем текущий файл на /files/download и получаем путь к результату
-      const newPath = await window.api.backendProcessDynamic(filePath);
-      // сразу открываем обработанный файл во вьювере
-      dispatch(setFilePath(newPath));
+      // отправляем текущий файл на /files/download и получаем taskId
+      const taskId = await window.api.backendProcessDynamic(filePath);
+      setCurrentTaskId(taskId);
+      currentTaskIdRef.current = taskId;
+      // start processing progress as indeterminate until we receive percent
+        setProcessDots("");
     } catch {
       alert("Не удалось обработать файл. Проверь соединение с бэкендом и логи.");
     } finally {
-      setBusy(false);
+      // busy остаётся true до события done/error или отмены
     }
   };
+
+  // cancel removed: backend cancel not implemented reliably yet
 
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
@@ -85,7 +125,9 @@ export default function FileLoader() {
       )}
       {/* Если uploadPct === null, это может означать indeterminate processing */}
       {uploadPct === null && busy && (
-        <div style={{ minWidth: 160, color: '#ddd' }}>Processing…</div>
+        <div style={{ minWidth: 160 }} title="Processing">
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 2 }}>Processing{processDots}</div>
+        </div>
       )}
 
       {/* Кнопка авто-очистки показывается только когда файл открыт */}

@@ -68,16 +68,8 @@ export default function Scene3D() {
   const pointSizeScaleRef = useRef<number>(1);
 
   // Manual edit state
-  const [editMode, setEditMode] = useState(false);
-  const [brushRadius, setBrushRadius] = useState(0.05); // world units after normalization
-  const isErasingRef = useRef(false);
-  const pendingDeleteRef = useRef<Set<number>>(new Set());
+  // Manual edit state (removed): keep only filename ref and export helpers
   const lastFileNameRef = useRef<string | null>(null);
-  const [brushScreen, setBrushScreen] = useState<{ x: number; y: number; visible: boolean; pxRadius: number }>(
-    { x: 0, y: 0, visible: false, pxRadius: 12 }
-  );
-  const [applyInstantly, setApplyInstantly] = useState(true);
-  const lastHitRef = useRef<THREE.Vector3 | null>(null);
 
   // BBox
   const bboxRef = useRef<THREE.Box3 | null>(null);
@@ -454,16 +446,10 @@ export default function Scene3D() {
     const onMouseMove = (e: MouseEvent) => {
       // Track cursor in NDC for raycasting / brush
       if (renderer && camera) {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-        if (editMode) updateBrushOverlay(e.clientX - rect.left, e.clientY - rect.top);
-      }
-
-      // While erasing, accumulate points under brush
-      if (isErasingRef.current) {
-        brushCollectAtCursor();
-      }
+          const rect = renderer.domElement.getBoundingClientRect();
+          mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        }
 
       if (!flyModeRef.current) return;
       const dx = e.movementX || 0;
@@ -743,156 +729,7 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
-  // --- Manual erase helpers ---
-  function brushCollectAtCursor() {
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    const raycaster = raycasterRef.current;
-    const points = pointsRef.current as THREE.Points | null;
-    if (!scene || !camera || !raycaster || !points) return;
-
-    raycaster.setFromCamera(mouseNdcRef.current, camera);
-    const intersects = raycaster.intersectObject(points, false);
-    if (!intersects.length) return;
-
-    const hit = intersects[0].point.clone(); // world
-    lastHitRef.current = hit.clone();
-    const localHit = hit.clone();
-    points.worldToLocal(localHit);
-
-    const geom = points.geometry as THREE.BufferGeometry;
-    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
-    const radius = brushRadius;
-    const r2 = radius * radius;
-
-    for (let i = 0; i < posAttr.count; i++) {
-      const dx = posAttr.getX(i) - localHit.x;
-      const dy = posAttr.getY(i) - localHit.y;
-      const dz = posAttr.getZ(i) - localHit.z;
-      if (dx * dx + dy * dy + dz * dz <= r2) {
-        pendingDeleteRef.current.add(i);
-      }
-    }
-
-    if (applyInstantly) {
-      applyDeletion();
-    }
-  }
-
-  function updateBrushOverlay(x: number, y: number) {
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    const points = pointsRef.current as THREE.Points | null;
-    if (!renderer || !camera || !points) {
-      setBrushScreen({ x, y, visible: true, pxRadius: brushScreen.pxRadius });
-      return;
-    }
-
-    // Try to compute pixel radius by projecting a world-offset vector around last hit or target
-    const rect = renderer.domElement.getBoundingClientRect();
-    const center = lastHitRef.current ? lastHitRef.current.clone() : controlsRef.current?.target.clone() || new THREE.Vector3();
-    // build a right vector perpendicular to view
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-    const p1 = center.clone();
-    const p2 = center.clone().add(right.multiplyScalar(brushRadius));
-    const ndc1 = p1.clone().project(camera);
-    const ndc2 = p2.clone().project(camera);
-    const dx = (ndc2.x - ndc1.x) * (rect.width / 2);
-    const dy = (ndc2.y - ndc1.y) * (-rect.height / 2);
-    const pxRadius = Math.max(4, Math.min(200, Math.hypot(dx, dy)));
-    setBrushScreen({ x, y, visible: true, pxRadius });
-  }
-
-  function applyDeletion() {
-    const points = pointsRef.current as THREE.Points | null;
-    if (!points || pendingDeleteRef.current.size === 0) return;
-
-    const geom = points.geometry as THREE.BufferGeometry;
-    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
-    const colAttr = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
-
-    const keepCount = posAttr.count - pendingDeleteRef.current.size;
-    const newPos = new Float32Array(keepCount * 3);
-    const newCol = colAttr ? new Float32Array(keepCount * 3) : undefined;
-
-    let w = 0;
-    for (let i = 0; i < posAttr.count; i++) {
-      if (pendingDeleteRef.current.has(i)) continue;
-      newPos[w * 3 + 0] = posAttr.getX(i);
-      newPos[w * 3 + 1] = posAttr.getY(i);
-      newPos[w * 3 + 2] = posAttr.getZ(i);
-      if (newCol && colAttr) {
-        newCol[w * 3 + 0] = colAttr.getX(i);
-        newCol[w * 3 + 1] = colAttr.getY(i);
-        newCol[w * 3 + 2] = colAttr.getZ(i);
-      }
-      w++;
-    }
-
-    const newGeom = new THREE.BufferGeometry();
-    newGeom.setAttribute("position", new THREE.BufferAttribute(newPos, 3));
-    if (newCol) newGeom.setAttribute("color", new THREE.BufferAttribute(newCol, 3));
-
-    const mat = points.material as THREE.PointsMaterial;
-    const next = new THREE.Points(newGeom, mat);
-    next.position.copy(points.position);
-    next.rotation.copy(points.rotation);
-    next.scale.copy(points.scale);
-
-    const scene = sceneRef.current!;
-    scene.remove(points);
-    pointsRef.current = next;
-    scene.add(next);
-
-    bboxRef.current = new THREE.Box3().setFromObject(next);
-    if (bboxHelperRef.current) {
-      scene.remove(bboxHelperRef.current);
-      bboxHelperRef.current = null;
-    }
-    if (showBBox) {
-      const helper = new THREE.Box3Helper(bboxRef.current, 0x4444ff);
-      scene.add(helper);
-      bboxHelperRef.current = helper;
-    }
-
-    pendingDeleteRef.current.clear();
-  }
-
-  function onPointerDown(e: React.MouseEvent) {
-    if (!editMode || e.button !== 0) return;
-    e.preventDefault();
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    if (renderer && camera) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      setBrushScreen((s) => ({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true, pxRadius: s.pxRadius }));
-    }
-    isErasingRef.current = true;
-    // Temporarily disable OrbitControls to prevent camera rotation while erasing
-    if (controlsRef.current) controlsRef.current.enabled = false;
-    brushCollectAtCursor();
-  }
-  function onPointerUp(e: React.MouseEvent) {
-    if (!editMode || e.button !== 0) return;
-    e.preventDefault();
-    isErasingRef.current = false;
-    if (controlsRef.current) controlsRef.current.enabled = true;
-    setBrushScreen((s) => ({ ...s, visible: false }));
-    applyDeletion();
-  }
-  function onPointerLeave() {
-    if (!editMode) return;
-    if (controlsRef.current) controlsRef.current.enabled = true;
-    setBrushScreen((s) => ({ ...s, visible: false }));
-    if (isErasingRef.current) {
-      isErasingRef.current = false;
-      applyDeletion();
-    }
-  }
+  // Manual erase helpers removed.
 
   async function exportCurrentPLY() {
     const pts = pointsRef.current;
@@ -1041,64 +878,12 @@ export default function Scene3D() {
   }
 
   return (
-    <div
-      style={{ width: "100%", height: "100%", position: "relative", cursor: editMode ? "crosshair" : undefined }}
-      ref={mountRef}
-      onMouseDown={onPointerDown}
-      onMouseUp={onPointerUp}
-      onMouseLeave={onPointerLeave}
-    >
-      {/* Manual edit toolbar */}
+    <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
       <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 6, display: "flex", gap: 10, alignItems: "center", zIndex: 2 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} />
-          <span>Erase mode</span>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: editMode ? 1 : 0.5 }}>
-          <span>Brush</span>
-          <input
-            type="range"
-            min={0.005}
-            max={0.2}
-            step={0.005}
-            value={brushRadius}
-            onChange={(e) => setBrushRadius(parseFloat(e.target.value))}
-            disabled={!editMode}
-          />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={applyInstantly} onChange={(e) => setApplyInstantly(e.target.checked)} />
-          <span>Apply instantly</span>
-        </label>
         <button onClick={exportCurrentPLY} title="Export current points as PLY (ASCII)">Export PLY</button>
         <button onClick={exportCurrentPLYBinary} title="Export current points as PLY (binary little-endian)">Export PLY (bin)</button>
         <button onClick={exportCurrentPCD} title="Export current points as PCD (ASCII)">Export PCD</button>
       </div>
-      {/* Brush cursor overlay */}
-      {editMode && brushScreen.visible && (
-        <div
-          style={{
-            position: "absolute",
-            left: Math.max(0, brushScreen.x - 9999),
-            top: Math.max(0, brushScreen.y - 9999),
-            pointerEvents: "none",
-            zIndex: 1,
-          }}
-        >
-          {/* Approximate brush radius in pixels by projecting radius at current distance; for simplicity use fixed size as hint */}
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(${brushScreen.x - brushScreen.pxRadius}px, ${brushScreen.y - brushScreen.pxRadius}px)`,
-              width: brushScreen.pxRadius * 2,
-              height: brushScreen.pxRadius * 2,
-              borderRadius: "50%",
-              border: "1px solid rgba(255,255,255,0.7)",
-              background: "rgba(255,255,255,0.1)",
-            }}
-          />
-        </div>
-      )}
       <div
         id="pcd-help-overlay"
         style={{
