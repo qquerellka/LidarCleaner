@@ -45,8 +45,8 @@ class RobustRabbitMQClient:
         try:
             parameters = pika.ConnectionParameters(
                 host='rabbitmq',
-                heartbeat=600,  # 10 минут
-                blocked_connection_timeout=300,
+                heartbeat=7200,  # 10 минут
+                blocked_connection_timeout=7200,
                 connection_attempts=3,
                 retry_delay=5
             )
@@ -151,132 +151,6 @@ def safe_model_load(model_path, device):
     except Exception as e:
         logger.error(f"Failed to load model: {e}")
         raise
-
-# def visualize_dynamic_points_safe(ply_file_path, model_path, output_file_path=None, threshold=0.7):
-#     """Безопасная версия обработки point cloud"""
-#     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-#
-#     try:
-#         optimize_memory()
-#         start_time = time.time()
-#
-#         # Загрузка модели
-#         model = safe_model_load(model_path, device)
-#
-#         # Чтение point cloud
-#         logger.info(f"Reading point cloud from {ply_file_path}")
-#         pcd = o3d.io.read_point_cloud(ply_file_path)
-#
-#         # Автоматическая настройка параметров
-#         original_points_count = len(pcd.points)
-#         logger.info(f"Original points: {original_points_count}")
-#
-#         voxel_size = 0.02
-#         if original_points_count > 1000000:
-#             voxel_size = 0.03
-#             logger.info(f"Large file, using voxel_size={voxel_size}")
-#
-#         # Downsample
-#         pcd = pcd.voxel_down_sample(voxel_size)
-#         logger.info(f"After downsample: {len(pcd.points)} points")
-#
-#         # Упрощенная оценка нормалей
-#         pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=15))
-#
-#         points = np.asarray(pcd.points, dtype=np.float32)
-#         colors = np.asarray(pcd.colors, dtype=np.float32) if pcd.has_colors() else np.ones((len(points), 3), dtype=np.float32) * 0.5
-#         normals = np.asarray(pcd.normals, dtype=np.float32)
-#
-#         logger.info(f"Points for processing: {len(points)}")
-#         check_memory_usage()
-#
-#         # Обработка батчами
-#         batch_size = 50000
-#         all_dynamic_probs = []
-#         total_batches = (len(points) + batch_size - 1) // batch_size
-#
-#         logger.info(f"Processing {total_batches} batches")
-#
-#         for batch_idx in range(total_batches):
-#             batch_start_time = time.time()
-#             start_idx = batch_idx * batch_size
-#             end_idx = min((batch_idx + 1) * batch_size, len(points))
-#
-#             batch_points = points[start_idx:end_idx]
-#             batch_colors = colors[start_idx:end_idx]
-#             batch_normals = normals[start_idx:end_idx]
-#
-#             # Нормализация
-#             xyz = batch_points - np.mean(batch_points, axis=0, keepdims=True)
-#             xyz_max = np.max(np.abs(xyz))
-#             if xyz_max > 0:
-#                 xyz = xyz / (xyz_max + 1e-8)
-#
-#             rgb = batch_colors
-#             if np.max(rgb) > 1.0:
-#                 rgb = rgb / 255.0
-#             rgb = (rgb - 0.5) / 0.5
-#
-#             features = np.hstack([xyz, rgb, batch_normals]).astype(np.float32)
-#
-#             # Предсказание
-#             features_tensor = torch.tensor(features, dtype=torch.float32).unsqueeze(0)
-#             features_tensor = features_tensor.permute(0, 2, 1).to(device)
-#
-#             with torch.no_grad():
-#                 pred, _ = model(features_tensor)
-#                 probas = F.softmax(pred, dim=2)
-#                 dynamic_probs = probas[0, :, 1].cpu().numpy()
-#                 all_dynamic_probs.append(dynamic_probs)
-#
-#             # Очистка
-#             del features_tensor, pred, probas
-#             optimize_memory()
-#
-#             batch_time = time.time() - batch_start_time
-#             logger.info(f"Batch {batch_idx + 1}/{total_batches} processed in {batch_time:.1f}s")
-#
-#         # Постобработка
-#         all_dynamic_probs = np.concatenate(all_dynamic_probs)
-#         pred_labels = (all_dynamic_probs > threshold).astype(int)
-#
-#         # Простая постобработка
-#         if len(points) > 0:
-#             min_z = np.min(points[:, 2])
-#             max_z = np.max(points[:, 2])
-#             height_threshold = min_z + (max_z - min_z) * 0.7
-#             upper_mask = points[:, 2] > height_threshold
-#             pred_labels[upper_mask] = 0
-#
-#         # Визуализация
-#         new_colors = colors.copy()
-#         dynamic_mask = pred_labels == 1
-#         new_colors[dynamic_mask] = [1.0, 0.0, 0.0]
-#
-#         visualized_pcd = o3d.geometry.PointCloud()
-#         visualized_pcd.points = o3d.utility.Vector3dVector(points)
-#         visualized_pcd.colors = o3d.utility.Vector3dVector(new_colors)
-#
-#         if output_file_path is None:
-#             base_name = os.path.splitext(ply_file_path)[0]
-#             output_file_path = f"{base_name}_processed.ply"
-#
-#         logger.info(f"Saving result to {output_file_path}")
-#         o3d.io.write_point_cloud(output_file_path, visualized_pcd)
-#
-#         # Финальная очистка
-#         del model, pcd, points, colors, normals, all_dynamic_probs, visualized_pcd
-#         optimize_memory()
-#
-#         total_time = time.time() - start_time
-#         logger.info(f"Processing completed in {total_time:.1f} seconds")
-#
-#         return output_file_path
-#
-#     except Exception as e:
-#         logger.error(f"Error in point cloud processing: {e}")
-#         logger.error(traceback.format_exc())
-#         raise
 
 def get_or_load_model(model_path, device):
     """Получить или загрузить модель (переиспользование)"""
