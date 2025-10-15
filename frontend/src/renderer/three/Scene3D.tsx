@@ -915,25 +915,129 @@ export default function Scene3D() {
       lines.push("property uchar green");
       lines.push("property uchar blue");
     }
-    lines.push("end_header");
+  // Some viewers expect an explicit face element, even if zero
+  lines.push("element face 0");
+  lines.push("end_header");
+
+    const m = pts.matrixWorld.clone();
+    const v = new THREE.Vector3();
+    const fmt = (f: number) => Number.isFinite(f) ? f.toFixed(6) : "0.000000";
 
     for (let i = 0; i < n; i++) {
-      const x = pos.getX(i);
-      const y = pos.getY(i);
-      const z = pos.getZ(i);
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(m);
       if (hasColor && col) {
         const r = Math.max(0, Math.min(255, Math.round(col.getX(i) * 255)));
         const g = Math.max(0, Math.min(255, Math.round(col.getY(i) * 255)));
         const b = Math.max(0, Math.min(255, Math.round(col.getZ(i) * 255)));
-        lines.push(`${x} ${y} ${z} ${r} ${g} ${b}`);
+        lines.push(`${fmt(v.x)} ${fmt(v.y)} ${fmt(v.z)} ${r} ${g} ${b}`);
       } else {
-        lines.push(`${x} ${y} ${z}`);
+        lines.push(`${fmt(v.x)} ${fmt(v.y)} ${fmt(v.z)}`);
       }
     }
 
-    const content = lines.join("\n");
+    const content = lines.join("\n") + "\n"; // ensure trailing newline
     const suggested = (lastFileNameRef.current || "points").replace(/\.[^.]+$/, "") + "-edited.ply";
     await window.api.saveFile({ suggestedName: suggested, data: content });
+  }
+
+  async function exportCurrentPCD() {
+    const pts = pointsRef.current;
+    if (!pts) return;
+    const geom = pts.geometry as THREE.BufferGeometry;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const col = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
+    const hasColor = !!col;
+    const n = pos.count;
+
+    const m = pts.matrixWorld.clone();
+    const v = new THREE.Vector3();
+    const fmt = (f: number) => Number.isFinite(f) ? f.toFixed(6) : "0.000000";
+
+    // Build ASCII PCD with separate r g b fields
+    const header: string[] = [];
+    header.push("# .PCD v0.7 - Point Cloud Data file format");
+    header.push(`FIELDS x y z${hasColor ? " r g b" : ""}`);
+    header.push(`SIZE 4 4 4${hasColor ? " 1 1 1" : ""}`);
+    header.push(`TYPE F F F${hasColor ? " U U U" : ""}`);
+    header.push(`COUNT 1 1 1${hasColor ? " 1 1 1" : ""}`);
+    header.push(`WIDTH ${n}`);
+    header.push("HEIGHT 1");
+    header.push("VIEWPOINT 0 0 0 1 0 0 0");
+    header.push(`POINTS ${n}`);
+    header.push("DATA ascii");
+
+    const rows: string[] = [];
+    for (let i = 0; i < n; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(m);
+      if (hasColor && col) {
+        const r = Math.max(0, Math.min(255, Math.round(col.getX(i) * 255)));
+        const g = Math.max(0, Math.min(255, Math.round(col.getY(i) * 255)));
+        const b = Math.max(0, Math.min(255, Math.round(col.getZ(i) * 255)));
+        rows.push(`${fmt(v.x)} ${fmt(v.y)} ${fmt(v.z)} ${r} ${g} ${b}`);
+      } else {
+        rows.push(`${fmt(v.x)} ${fmt(v.y)} ${fmt(v.z)}`);
+      }
+    }
+
+    const content = header.join("\n") + "\n" + rows.join("\n");
+    const suggested = (lastFileNameRef.current || "points").replace(/\.[^.]+$/, "") + "-edited.pcd";
+    await window.api.saveFile({ suggestedName: suggested, data: content });
+  }
+
+  async function exportCurrentPLYBinary() {
+    const pts = pointsRef.current;
+    if (!pts) return;
+    const geom = pts.geometry as THREE.BufferGeometry;
+    const pos = geom.getAttribute("position") as THREE.BufferAttribute;
+    const col = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
+    const hasColor = !!col;
+    const n = pos.count;
+
+    // Build header (ASCII) + binary body (little endian)
+    const headerLines: string[] = [];
+    headerLines.push("ply");
+    headerLines.push("format binary_little_endian 1.0");
+    headerLines.push(`element vertex ${n}`);
+    headerLines.push("property float x");
+    headerLines.push("property float y");
+    headerLines.push("property float z");
+    if (hasColor) {
+      headerLines.push("property uchar red");
+      headerLines.push("property uchar green");
+      headerLines.push("property uchar blue");
+    }
+    headerLines.push("element face 0");
+    headerLines.push("end_header\n"); // header must end with a newline
+    const headerText = headerLines.join("\n");
+
+    const encoder = new TextEncoder();
+    const headerBytes = encoder.encode(headerText);
+    const stride = hasColor ? 12 + 3 : 12; // 3*float32 + optional 3*uchar
+    const body = new Uint8Array(n * stride);
+    const view = new DataView(body.buffer);
+
+    const m = pts.matrixWorld.clone();
+    const v = new THREE.Vector3();
+    let offset = 0;
+    for (let i = 0; i < n; i++) {
+      v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(m);
+      view.setFloat32(offset + 0, v.x, true);
+      view.setFloat32(offset + 4, v.y, true);
+      view.setFloat32(offset + 8, v.z, true);
+      if (hasColor && col) {
+        body[offset + 12] = Math.max(0, Math.min(255, Math.round(col.getX(i) * 255)));
+        body[offset + 13] = Math.max(0, Math.min(255, Math.round(col.getY(i) * 255)));
+        body[offset + 14] = Math.max(0, Math.min(255, Math.round(col.getZ(i) * 255)));
+      }
+      offset += stride;
+    }
+
+    const out = new Uint8Array(headerBytes.length + body.length);
+    out.set(headerBytes, 0);
+    out.set(body, headerBytes.length);
+
+    const suggested = (lastFileNameRef.current || "points").replace(/\.[^.]+$/, "") + "-edited-binary.ply";
+    await window.api.saveFile({ suggestedName: suggested, data: out });
   }
 
   return (
@@ -966,7 +1070,9 @@ export default function Scene3D() {
           <input type="checkbox" checked={applyInstantly} onChange={(e) => setApplyInstantly(e.target.checked)} />
           <span>Apply instantly</span>
         </label>
-        <button onClick={exportCurrentPLY} title="Export current points as PLY">Export PLY</button>
+        <button onClick={exportCurrentPLY} title="Export current points as PLY (ASCII)">Export PLY</button>
+        <button onClick={exportCurrentPLYBinary} title="Export current points as PLY (binary little-endian)">Export PLY (bin)</button>
+        <button onClick={exportCurrentPCD} title="Export current points as PCD (ASCII)">Export PCD</button>
       </div>
       {/* Brush cursor overlay */}
       {editMode && brushScreen.visible && (
