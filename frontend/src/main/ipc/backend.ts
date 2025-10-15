@@ -159,30 +159,85 @@ export function registerBackendIpc() {
 
       const form = new FormData();
       form.append("file", createReadStream(filePath));
-
+      // make request and stream response, report progress to renderer
       const response = await api.post(`/files/download`, form, {
         headers: form.getHeaders(),
         responseType: "stream",
-        timeout: 10 * 60_000,
+        timeout: 2 * 60 * 60_000, // allow long processing (2 hours)
+        maxBodyLength: Infinity,
       });
 
-      // Пытаемся вытащить имя из Content-Disposition
-      const cd = String(response.headers["content-disposition"] || "");
-      const match = /filename="?([^"]+)"?/i.exec(cd);
+      // Prepare sink
+      const sinkName = `proc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const sinkPath = join(getTempDir(), sinkName);
+      const writer = createWriteStream(sinkPath);
 
-      let outName = suggestedName || (match ? match[1] : null);
+      // Progress tracking
+      let received = 0;
+      const contentLengthHeader = response.headers["content-length"];
+      const total = contentLengthHeader ? parseInt(String(contentLengthHeader), 10) : null;
+
+      // sniff first bytes to guess extension if server didn't provide filename
+      const CHUNK_PEEK = 512;
+      let firstChunk: Buffer | null = null;
+      let outName: string | null = null;
+      const cd = String(response.headers["content-disposition"] || "");
+      const match = /filename=\"?([^\";]+)\"?/i.exec(cd);
+      if (match) outName = match[1];
+
+      await new Promise<void>((resolve, reject) => {
+        response.data.on("data", (chunk: Buffer | string) => {
+          try {
+            // normalize chunk to Buffer for length and slicing
+            const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+            if (!firstChunk) firstChunk = Buffer.from(buf.slice(0, CHUNK_PEEK));
+            received += buf.length;
+            writer.write(buf);
+
+            const pct = total ? Math.round((received / total) * 100) : null;
+            for (const win of BrowserWindow.getAllWindows()) {
+              win.webContents.send("backend:process-progress", { received, total, percent: pct });
+            }
+          } catch (e) {
+            // ignore per-chunk errors
+          }
+        });
+
+        response.data.on("end", () => {
+          writer.end();
+        });
+
+        response.data.on("error", (e: Error) => reject(e));
+        writer.on("finish", () => resolve());
+        writer.on("error", (e) => reject(e));
+      });
+
+      // determine outName if still unknown
       if (!outName) {
-        const orig = basename(filePath);
-        outName = orig.replace(/(\.[^.]+)?$/, "-cleaned$1");
+        const hint = (suggestedName || basename(filePath)).replace(/(\.[^.]+)?$/, "");
+        if (firstChunk) {
+          const buf = firstChunk as Buffer;
+          const head = buf.toString("utf8", 0, Math.min(buf.length, 64)).toLowerCase();
+          if (head.includes("ply")) outName = `${hint}.ply`;
+          else if (head.includes("# .pcd") || head.includes(".pcd") || head.includes("version")) outName = `${hint}.pcd`;
+          else outName = `${hint}-cleaned.ply`;
+        } else {
+          outName = `${hint}-cleaned.ply`;
+        }
       }
 
       const outPath = join(getTempDir(), outName);
-      await new Promise<void>((resolve, reject) => {
-        const writer = createWriteStream(outPath);
-        response.data.pipe(writer);
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
+      try {
+        await fsp.rename(sinkPath, outPath);
+      } catch (e) {
+        // fallback: copy and unlink
+        try {
+          await fsp.copyFile(sinkPath, outPath);
+          await fsp.unlink(sinkPath);
+        } catch (_) {
+          // ignore
+        }
+      }
 
       return outPath;
     }

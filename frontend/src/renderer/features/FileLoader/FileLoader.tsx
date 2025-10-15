@@ -19,8 +19,18 @@ export default function FileLoader() {
         setUploadPct(p.percent);
       }
     });
+    // Подписка на прогресс обработки
+    const unsubProc = window.api.onProcessProgress((p) => {
+      if (p && p.percent != null) {
+        setUploadPct((p.percent ?? 0) / 100);
+      } else {
+        // indeterminate — show spinner by setting null
+        setUploadPct(null);
+      }
+    });
     return () => {
       unsubUploadRef.current?.();
+      unsubProc?.();
     };
   }, []);
 
@@ -72,6 +82,10 @@ export default function FileLoader() {
             />
           </div>
         </div>
+      )}
+      {/* Если uploadPct === null, это может означать indeterminate processing */}
+      {uploadPct === null && busy && (
+        <div style={{ minWidth: 160, color: '#ddd' }}>Processing…</div>
       )}
 
       {/* Кнопка авто-очистки показывается только когда файл открыт */}

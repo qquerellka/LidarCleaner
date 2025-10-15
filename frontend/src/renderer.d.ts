@@ -24,6 +24,7 @@ declare global {
           percent: number | null;
         }) => void
       ) => () => void;
+      onProcessProgress: (cb: (p: { received: number; total: number | null; percent: number | null }) => void) => () => void;
       onUploadProgress: (
         cb: (p: { id: string; uploaded: number; total: number; percent: number | null }) => void
       ) => () => void;
