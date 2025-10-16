@@ -4,6 +4,8 @@ import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useSelector, useDispatch } from "react-redux";
+import { Group, Button, ActionIcon } from "@mantine/core";
+import { IconDownload, IconFileTypography } from "@tabler/icons-react";
 import type { RootState } from "../store";
 import {
   clearCameraCommand,
@@ -607,6 +609,24 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath, colorMode, fixedColor, pointSize]);
 
+  // Слушатели событий для экспорта
+  useEffect(() => {
+    const handleExportPLY = () => exportCurrentPLY();
+    const handleExportPLYBinary = () => exportCurrentPLYBinary();
+    const handleExportPCD = () => exportCurrentPCD();
+
+    window.addEventListener("export-ply", handleExportPLY);
+    window.addEventListener("export-ply-binary", handleExportPLYBinary);
+    window.addEventListener("export-pcd", handleExportPCD);
+
+    return () => {
+      window.removeEventListener("export-ply", handleExportPLY);
+      window.removeEventListener("export-ply-binary", handleExportPLYBinary);
+      window.removeEventListener("export-pcd", handleExportPCD);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // тумблеры видимости гизмосов
   useEffect(() => {
     if (axesRef.current) axesRef.current.visible = showAxes;
@@ -879,10 +899,36 @@ export default function Scene3D() {
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
-      <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 6, display: "flex", gap: 10, alignItems: "center", zIndex: 2 }}>
-        <button onClick={exportCurrentPLY} title="Export current points as PLY (ASCII)">Export PLY</button>
-        <button onClick={exportCurrentPLYBinary} title="Export current points as PLY (binary little-endian)">Export PLY (bin)</button>
-        <button onClick={exportCurrentPCD} title="Export current points as PCD (ASCII)">Export PCD</button>
+      <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2 }}>
+        <Group gap="xs">
+          <Button
+            onClick={exportCurrentPLY}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PLY (ASCII)"
+          >
+            PLY
+          </Button>
+          <Button
+            onClick={exportCurrentPLYBinary}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PLY (бинарный)"
+          >
+            PLY (bin)
+          </Button>
+          <Button
+            onClick={exportCurrentPCD}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PCD (ASCII)"
+          >
+            PCD
+          </Button>
+        </Group>
       </div>
       <div
         id="pcd-help-overlay"
