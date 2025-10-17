@@ -1,0 +1,160 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Extract version
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## 🎉 Release ${{ steps.get_version.outputs.VERSION }}
+            
+            See [CHANGELOG.md](https://github.com/lidarcleaner/app/blob/main/CHANGELOG.md) for details.
+            
+            ### 📦 Downloads
+            - **Linux**: LidarCleaner-${{ steps.get_version.outputs.VERSION }}-x86_64.AppImage
+            - **Windows**: LidarCleaner-Setup-${{ steps.get_version.outputs.VERSION }}.exe
+            - **macOS**: LidarCleaner-${{ steps.get_version.outputs.VERSION }}.dmg
+            
+            ### 🚀 Quick Start
+            ```bash
+            # Linux
+            chmod +x LidarCleaner-*.AppImage
+            ./LidarCleaner-*.AppImage
+            
+            # Windows
+            Run LidarCleaner-Setup-*.exe
+            
+            # macOS
+            Open LidarCleaner-*.dmg
+            ```
+          draft: false
+          prerelease: false
+
+  build-linux:
+    name: Build Linux
+    needs: create-release
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+      
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+      
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+      
+      - name: Package
+        working-directory: frontend
+        run: npm run package
+      
+      - name: Upload AppImage
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./frontend/dist/LidarCleaner-*.AppImage
+          asset_name: LidarCleaner-${{ github.ref_name }}-x86_64.AppImage
+          asset_content_type: application/octet-stream
+
+  # build-windows:
+  #   name: Build Windows
+  #   needs: create-release
+  #   runs-on: windows-latest
+  #   
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v3
+  #       with:
+  #         node-version: '18'
+  #     
+  #     - name: Install dependencies
+  #       working-directory: frontend
+  #       run: npm ci
+  #     
+  #     - name: Build
+  #       working-directory: frontend
+  #       run: npm run build
+  #     
+  #     - name: Package
+  #       working-directory: frontend
+  #       run: npm run package
+  #     
+  #     - name: Upload EXE
+  #       uses: actions/upload-release-asset@v1
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         upload_url: ${{ needs.create-release.outputs.upload_url }}
+  #         asset_path: ./frontend/dist/LidarCleaner-Setup-*.exe
+  #         asset_name: LidarCleaner-Setup-${{ github.ref_name }}.exe
+  #         asset_content_type: application/octet-stream
+
+  # build-macos:
+  #   name: Build macOS
+  #   needs: create-release
+  #   runs-on: macos-latest
+  #   
+  #   steps:
+  #     - uses: actions/checkout@v3
+  #     
+  #     - name: Setup Node.js
+  #       uses: actions/setup-node@v3
+  #       with:
+  #         node-version: '18'
+  #     
+  #     - name: Install dependencies
+  #       working-directory: frontend
+  #       run: npm ci
+  #     
+  #     - name: Build
+  #       working-directory: frontend
+  #       run: npm run build
+  #     
+  #     - name: Package
+  #       working-directory: frontend
+  #       run: npm run package
+  #     
+  #     - name: Upload DMG
+  #       uses: actions/upload-release-asset@v1
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  #       with:
+  #         upload_url: ${{ needs.create-release.outputs.upload_url }}
+  #         asset_path: ./frontend/dist/LidarCleaner-*.dmg
+  #         asset_name: LidarCleaner-${{ github.ref_name }}.dmg
+  #         asset_content_type: application/octet-stream
+

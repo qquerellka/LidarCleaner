@@ -1,288 +1,700 @@
-# LidarCleaner
+<div align="center">
 
+# 🌟 LidarCleaner
+
+**Профессиональный редактор облаков точек для LiDAR данных**
+
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Electron](https://img.shields.io/badge/Electron-30.0-47848F?logo=electron)](https://www.electronjs.org/)
+[![React](https://img.shields.io/badge/React-18.3-61DAFB?logo=react)](https://reactjs.org/)
+[![Three.js](https://img.shields.io/badge/Three.js-0.180-000000?logo=three.js)](https://threejs.org/)
+[![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go)](https://golang.org/)
+
+[Быстрый старт](#-быстрый-старт) • [Возможности](#-возможности) • [Архитектура](#-архитектура) • [Документация](#-документация) • [API](#-api)
 
 ![schema](assets/schema.png)
 
-## Запуск (Backend + Frontend)
-
-### 1) Backend (Docker Compose)
-
-В одном терминале запустите backend и инфраструктуру (PostgreSQL, MinIO, RabbitMQ):
-
-```bash
-cd backend
-docker compose up -d --build
-docker compose logs -f app
-```
-
-Проверка здоровья:
-
-```bash
-curl http://localhost:8000/health
-```
-
-### 2) Frontend (Electron + Vite)
-
-Во втором терминале запустите приложение Electron c указанием адреса backend:
-
-```bash
-cd frontend
-npm i
-BACKEND_URL=http://localhost:8000 npm run dev
-```
-
-По умолчанию `BACKEND_URL` = `http://localhost:8000`. При необходимости измените на другой адрес.
-
-### 3) Проверка взаимодействия
-
-- В окне приложения нажмите «Open PCD File» и выберите `.pcd` файл — он автоматически отправится на backend через POST `/files/upload_file`.
-- Логи backend можно смотреть командой:
-
-```bash
-cd backend
-docker compose logs -f app
-```
-
-Опционально, можно проверить подключение из консоли рендерера:
-
-```javascript
-await window.api.backendHealth()
-```
-
-## Навигация и горячие клавиши
-
-- Основное
-  - R — Reset камеры
-  - F — Fit ко всей сцене
-  - Alt+F — Fit к точке/кластеру под курсором
-  - G — Вкл/выкл сетку
-  - X — Вкл/выкл оси
-  - H — Домашний вид (0,0,5 → target 0,0,0)
-  - O — Автоворот камеры (toggle)
-
-- Фокусировка
-  - Double click — Фокус на точку под курсором с мягким перелётом
-  - Shift + Double click — Добавочный фокус (смешивание со старым target)
-  - Ctrl + Click — Установить target без перелёта
-
-- Presets (сохраняются в localStorage)
-  - Alt+1..9 — Загрузить пресет
-  - Ctrl+Alt+1..9 — Сохранить пресет
-
-- Fly-режим (огляд/полёт)
-  - T — Вкл/выкл fly-mode
-  - Управление: WASD — движение, Q/E — вниз/вверх
-  - Мышь — поворот (yaw/pitch)
-  - Shift — ускорение, Ctrl — медленнее/точнее
-
-- Жесты
-  - Alt + колесо — изменять размер точек (экранный)
-  - Zoom к курсору — включён (OrbitControls.zoomToCursor)
-  - Панорамирование — средняя кнопка; вращение — правая кнопка
-
-- Прочее
-  - Автовыравнивание облака по плоскости: тонкая ось → Y-up, затем опускание на y=0
-  - Мини-компас в углу; клики дают быстрые виды (Front/Side/Top)
-  - Состояние камеры (position/target) сохраняется между сессиями
+</div>
 
 ---
 
-## Обзор проекта
+## 📋 Содержание
 
-LidarCleaner — редактор лидарных карт, автоматизирующий удаление динамических объектов (пешеходы, машины и т.п.) из облаков точек. Проект состоит из десктопного приложения на Electron/React (Frontend), сервера на Go (Backend), хранилищ данных (PostgreSQL, MinIO) и CV-воркера на Python с моделями семейства PointNet/PointNet++ для постобработки.
+- [О проекте](#-о-проекте)
+- [Возможности](#-возможности)
+- [Требования](#-требования)
+- [Быстрый старт](#-быстрый-старт)
+- [Архитектура](#-архитектура)
+- [Горячие клавиши](#-горячие-клавиши)
+- [API Backend](#-api-backend)
+- [Разработка](#-разработка)
+- [Сборка для продакшн](#-сборка-для-продакшн)
+- [Структура проекта](#-структура-проекта)
+- [Технологии](#-технологии)
+- [Устранение неполадок](#-устранение-неполадок)
+- [Roadmap](#-roadmap)
+- [Contributing](#-contributing)
+- [Лицензия](#-лицензия)
 
-### Ключевые возможности
-- Загрузка `.pcd` файлов и просмотр облаков точек в 3D.
-- Управление камерой, пресеты, фокус на точках/кластерах, fly-режим.
-- Отправка облака точек на сервер для обработки и получение очищенного результата.
-- Интеграция с MinIO для объектного хранения и PostgreSQL для метаданных.
-- Асинхронная обработка через RabbitMQ и CV-воркер на Python (PointNet/PointNet++).
+---
 
-## Архитектура
+## 🎯 О проекте
 
-Высокоуровневую схему см. на изображении `assets/schema.png`.
+**LidarCleaner** — это мощный desktop-инструмент для работы с облаками точек в форматах **PCD** и **PLY**. Приложение предназначено для:
 
-### Компоненты
-- Backend (Go + Gin): REST API, загрузка/выгрузка файлов в MinIO, хранение метаданных в PostgreSQL, взаимодействие с RabbitMQ.
-- CV Worker (Python): подписка на события, получение исходных данных из MinIO, инференс модели, запись обработанного результата обратно в MinIO, ответ через RabbitMQ.
-- Хранилища: PostgreSQL (метаданные), MinIO (исходные и обработанные `.pcd`).
-- Frontend (Electron + React + Vite + Three.js): UI, рендер облаков точек, интеграция с Backend.
+- 🔍 **Визуализации** больших облаков точек (миллионы точек)
+- ✂️ **Редактирования** - удаление, скрытие, изоляция точек
+- 🤖 **Автоматической очистки** - удаление динамических объектов с помощью AI
+- 💾 **Экспорта** в оптимизированных форматах
+- 📊 **Измерений** расстояний между точками
+- 🎨 **Кастомизации** цветов и отображения
 
-## Переменные окружения
+---
 
-Backend (Go):
-- `PORT` — порт HTTP-сервера (по умолчанию `8000`).
-- `DATABASE_URL` — строка подключения к PostgreSQL, напр.: `postgresql://postgres:postgres@db:5432/postgres?sslmode=disable`.
-- `RABBITMQ_URL` — URL RabbitMQ, напр.: `amqp://guest:guest@rabbitmq:5672/`.
-- `MINIO_ENDPOINT` — адрес MinIO, напр.: `minio:9000`.
-- `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` — учётные данные MinIO.
-- `MINIO_BUCKET_NAME` — имя бакета для хранения файлов.
-- `MINIO_USE_SSL` — `true|false` для SSL к MinIO.
+## ✨ Возможности
 
-Frontend (Electron):
-- `BACKEND_URL` — адрес backend API (по умолчанию `http://localhost:8000`).
+### 🖼️ Визуализация
 
-CV Worker (Python):
-- Использует `RABBITMQ_URL`, `MINIO_*`, `MINIO_BUCKET_NAME` из docker-compose.
+- **Поддержка форматов**: PCD (Point Cloud Data), PLY (Polygon File Format)
+- **Режимы отображения**: цвета вершин, фиксированный цвет, высота
+- **Элементы сцены**: оси координат, сетка, ограничивающая рамка
+- **Камера**: свободное вращение, панорамирование, масштабирование
+- **Виды**: Сверху, Спереди, Сбоку, Сброс камеры
+- **Minimap**: 2D карта для быстрой навигации
 
-## API (Backend)
+### ✏️ Редактирование
 
-Базовый URL: `http://<host>:8000`
+- **Инструменты выделения**:
+  - **Box Selection** - прямоугольное выделение (B)
+  - **Brush Selection** - кисть с настраиваемым размером ([/])
+  
+- **Операции**:
+  - Удаление точек (Delete/Backspace)
+  - Скрытие/показ точек (H)
+  - Изоляция выделения (I)
+  - Инвертирование выделения (Ctrl+I)
+  - Отмена/Повтор (Ctrl+Z / Ctrl+Shift+Z)
 
-- `GET /health` — проверка состояния сервиса.
-- `POST /files/upload_file` — загрузка исходного файла.
-  - Формат: `multipart/form-data`, поле `file` — `.pcd`.
-  - Поведение: сохраняет объект в MinIO и возвращает поток файла (для тестов/валидации загрузки).
-- `POST /files/download` — асинхронная обработка файла с ответом по готовности.
-  - Формат: `multipart/form-data`, поле `file` — `.pcd`.
-  - Последовательность: файл сохраняется в MinIO → метаданные записываются в БД → формируется сообщение в RabbitMQ (exchange `pcd_files`, `fanout`, `replyTo` временная очередь) → ожидание ответа от CV-воркера → при получении ключа обработанного объекта из MinIO сервер отдаёт поток обработанного файла.
+- **Модификаторы**:
+  - Ctrl - добавить к выделению
+  - Alt - убрать из выделения
 
-Пример запроса (curl):
+### 🤖 AI-обработка
+
+- **Автоудаление динамики** - удаление движущихся объектов (машины, люди)
+- **Прогресс обработки** - визуальный индикатор с временем
+- **Фоновая обработка** - работа продолжается в фоне
+
+### 📏 Инструменты
+
+- **Измерение расстояний** - точное определение дистанции между точками (M)
+- **Сохранение видов** - запоминание позиций камеры (Alt+1..5)
+- **Блокировка камеры** - фиксация камеры для точного выделения (Ctrl hold)
+
+### 🎨 Интерфейс
+
+- **Темная/Светлая тема** - переключение цветовой схемы
+- **Компактное меню** - все инструменты под рукой
+- **Контекстные меню** - быстрый доступ к действиям
+- **Уведомления** - информация о процессах
+- **Недавние файлы** - быстрый доступ к последним проектам
+
+### 💾 Экспорт
+
+- **PLY** - стандартный формат с цветами
+- **PLY (Binary)** - оптимизированный бинарный формат
+- **PCD** - Point Cloud Data формат
+
+---
+
+## 📦 Требования
+
+### Backend
+
+- **Docker** >= 20.10
+- **Docker Compose** >= 2.0
+- **8GB RAM** (рекомендуется 16GB для больших файлов)
+- **Свободное место**: ~10GB для образов и данных
+
+### Frontend
+
+- **Node.js** >= 18.0
+- **npm** >= 9.0
+- **ОС**: Linux (Wayland/X11), Windows, macOS
+
+---
+
+## 🚀 Быстрый старт
+
+### Вариант 1: Единый скрипт запуска (рекомендуется)
 
 ```bash
-curl -X POST http://localhost:8000/files/download \
-  -F "file=@sample.pcd" \
-  -o cleaned.pcd
+# Клонируйте репозиторий
+git clone https://github.com/your-org/LidarCleaner.git
+cd LidarCleaner
+
+# Запустите приложение
+./start-lidarcleaner.sh
 ```
 
-## Поток данных
-1) Frontend загружает `.pcd` → Backend (`/files/download`).
-2) Backend сохраняет объект в MinIO, пишет метаданные в PostgreSQL.
-3) Backend публикует событие в RabbitMQ (`pcd_files`, `fanout`), указывает `replyTo` и `correlationId`.
-4) CV-воркер получает событие, читает исходный `.pcd` из MinIO, применяет PointNet/PointNet++ для фильтрации динамики, записывает обработанный `.pcd` в MinIO.
-5) CV-воркер отправляет ответ в `replyTo` с `correlationId`.
-6) Backend получает ответ и стримит обработанный `.pcd` в клиент.
+При первом запуске:
+1. Скрипт проверит наличие Docker
+2. Запустит backend-сервисы (PostgreSQL, MinIO, RabbitMQ, Go)
+3. Установит frontend-зависимости
+4. Предложит выбрать режим:
+   - **1 - Development** (с hot-reload и DevTools)
+   - **2 - Production** (оптимизированная сборка)
 
-## Запуск через Docker (Backend + инфраструктура + CV worker)
+### Вариант 2: Ручной запуск
 
-См. инструкции выше в разделе «Запуск (Backend + Frontend)». Коротко:
+#### Backend
 
 ```bash
 cd backend
-docker compose up -d --build
-docker compose logs -f app
+docker-compose up -d --build
+
+# Проверка здоровья
+curl http://localhost:8000/health
 ```
 
-После старта будут доступны:
-- Backend: `http://localhost:8000`
-- MinIO: `http://localhost:9000` (консоль: `http://localhost:9001` если включена)
-- PostgreSQL: `localhost:5432`
-- RabbitMQ Management: `http://localhost:15672` (guest/guest)
-
-## Локальная разработка
-
-Frontend:
+#### Frontend
 
 ```bash
 cd frontend
-npm i
-BACKEND_URL=http://localhost:8000 npm run dev
+npm install
+npm run dev
 ```
 
-Backend (локально, без Docker) — требуется запущенные PostgreSQL/MinIO/RabbitMQ и корректный `.env`:
+---
+
+## 🏗️ Архитектура
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                      Electron App                            │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │                  Renderer Process                      │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │  │
+│  │  │   React UI   │  │  Three.js    │  │   Redux    │  │  │
+│  │  │   (Mantine)  │  │   (Scene)    │  │  (State)   │  │  │
+│  │  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘  │  │
+│  │         │                 │                 │         │  │
+│  │         └─────────────────┴─────────────────┘         │  │
+│  │                          │                            │  │
+│  │                     IPC Bridge                        │  │
+│  └──────────────────────────┼────────────────────────────┘  │
+│  ┌──────────────────────────┼────────────────────────────┐  │
+│  │                  Main Process                          │  │
+│  │  ┌──────────────┐  ┌────┴──────┐  ┌───────────────┐  │  │
+│  │  │  Window Mgmt │  │ File I/O  │  │   Backend IPC │  │  │
+│  │  └──────────────┘  └───────────┘  └───────┬───────┘  │  │
+│  └────────────────────────────────────────────┼──────────┘  │
+└─────────────────────────────────────────────────┼───────────┘
+                                                  │
+                                            HTTP/REST
+                                                  │
+┌─────────────────────────────────────────────────┼───────────┐
+│                    Backend (Go)                 │           │
+│  ┌──────────────────────────────────────────────▼────────┐  │
+│  │              Gin HTTP Server                          │  │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │  │
+│  │  │ File Upload  │  │   Process    │  │   Health   │  │  │
+│  │  │   Handler    │  │   Dynamic    │  │   Check    │  │  │
+│  │  └──────┬───────┘  └──────┬───────┘  └────────────┘  │  │
+│  └─────────┼──────────────────┼──────────────────────────┘  │
+│            │                  │                             │
+│  ┌─────────▼─────┐   ┌────────▼──────┐   ┌──────────────┐  │
+│  │    MinIO      │   │   RabbitMQ    │   │  PostgreSQL  │  │
+│  │  (S3 Storage) │   │  (Task Queue) │   │  (Metadata)  │  │
+│  └───────────────┘   └───────────────┘   └──────────────┘  │
+│                                                             │
+│  ┌──────────────────────────────────────────────────────┐  │
+│  │              CV Worker (Python/Go)                    │  │
+│  │     Обработка облаков точек, удаление динамики       │  │
+│  └──────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Технологический стек
+
+#### Frontend
+- **Electron 30** - Desktop framework
+- **React 18** - UI библиотека
+- **Redux Toolkit** - State management
+- **Three.js** - 3D рендеринг
+- **Mantine UI** - Component library
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+
+#### Backend
+- **Go 1.23** - Основной язык
+- **Gin** - HTTP framework
+- **PostgreSQL 15** - База данных
+- **MinIO** - S3-совместимое хранилище
+- **RabbitMQ** - Очередь задач
+- **Docker** - Контейнеризация
+
+---
+
+## ⌨️ Горячие клавиши
+
+### Навигация
+| Клавиша | Действие |
+|---------|----------|
+| `Колесо мыши` | Масштабирование |
+| `ЛКМ + движение` | Вращение камеры |
+| `ПКМ + движение` | Панорамирование |
+| `Alt + 1..5` | Сохранить вид |
+| `1..5` | Загрузить вид |
+| `Ctrl + Hold` | Заблокировать камеру |
+
+### Выделение
+| Клавиша | Действие |
+|---------|----------|
+| `B` | Прямоугольное выделение (Box) |
+| `V` | Кисть (Brush) |
+| `[` / `]` | Уменьшить/Увеличить кисть |
+| `Ctrl + ЛКМ` | Добавить к выделению |
+| `Alt + ЛКМ` | Убрать из выделения |
+| `Ctrl + A` | Выделить все |
+| `Ctrl + I` | Инвертировать выделение |
+| `Escape` | Снять выделение |
+
+### Редактирование
+| Клавиша | Действие |
+|---------|----------|
+| `Delete` / `Backspace` | Удалить выделенное |
+| `H` | Скрыть выделенное |
+| `Alt + H` | Показать все |
+| `I` | Изолировать (скрыть невыделенное) |
+| `Ctrl + Z` | Отменить |
+| `Ctrl + Shift + Z` | Повторить |
+
+### Инструменты
+| Клавиша | Действие |
+|---------|----------|
+| `M` | Измерение расстояния |
+| `Alt + Колесо` | Изменить размер точек |
+| `?` | Показать помощь |
+
+### Файлы
+| Клавиша | Действие |
+|---------|----------|
+| `Ctrl + O` | Открыть файл |
+| `Ctrl + S` | Сохранить |
+| `Ctrl + Alt + S` | Сохранить как |
+
+---
+
+## 🌐 API Backend
+
+### Base URL
+```
+http://localhost:8000
+```
+
+### Endpoints
+
+#### Health Check
+```http
+GET /health
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2024-10-18T00:00:00Z"
+}
+```
+
+---
+
+#### Upload File
+```http
+POST /files/upload_file
+Content-Type: multipart/form-data
+```
+
+**Parameters:**
+- `file` (formData) - PCD или PLY файл
+
+**Response:**
+```json
+{
+  "file_id": "uuid-here",
+  "filename": "pointcloud.pcd",
+  "size": 12345678,
+  "uploaded_at": "2024-10-18T00:00:00Z"
+}
+```
+
+---
+
+#### Process Dynamic Objects
+```http
+POST /files/process_dynamic
+Content-Type: application/json
+```
+
+**Body:**
+```json
+{
+  "file_path": "/path/to/pointcloud.pcd"
+}
+```
+
+**Response:**
+```json
+{
+  "task_id": "task-uuid",
+  "status": "processing",
+  "estimated_time": 900
+}
+```
+
+---
+
+#### Get Processing Status
+```http
+GET /files/process_status/:task_id
+```
+
+**Response:**
+```json
+{
+  "task_id": "task-uuid",
+  "status": "completed",
+  "progress": 100,
+  "result_path": "/path/to/cleaned.pcd"
+}
+```
+
+---
+
+## 🛠️ Разработка
+
+### Структура Frontend
+
+```
+frontend/
+├── src/
+│   ├── main/           # Electron main process
+│   │   ├── index.ts    # Entry point
+│   │   ├── window.ts   # Window management
+│   │   ├── menu.ts     # Application menu
+│   │   └── ipc/        # IPC handlers
+│   │       ├── dialogs.ts
+│   │       ├── backend.ts
+│   │       └── ...
+│   └── renderer/       # React app
+│       ├── main.tsx    # React entry
+│       ├── App.tsx
+│       ├── components/ # Reusable components
+│       ├── features/   # Feature modules
+│       │   ├── FileLoader/
+│       │   ├── SceneControls/
+│       │   └── EditControls/
+│       ├── store/      # Redux store
+│       ├── three/      # Three.js integration
+│       │   ├── Scene3D.tsx
+│       │   └── hooks/  # Custom Three.js hooks
+│       └── utils/      # Utilities
+├── dist-electron/      # Compiled electron code
+└── package.json
+```
+
+### Структура Backend
+
+```
+backend/
+├── cmd/
+│   └── app/
+│       └── main.go     # Entry point
+├── internal/
+│   ├── handlers/       # HTTP handlers
+│   │   ├── health.go
+│   │   ├── files.go
+│   │   └── process.go
+│   ├── services/       # Business logic
+│   ├── models/         # Data models
+│   └── config/         # Configuration
+├── pkg/                # Shared packages
+├── docker-compose.yml
+└── Dockerfile
+```
+
+### Запуск в режиме разработки
 
 ```bash
+# Terminal 1: Backend
 cd backend
-go run .
+docker-compose up
+
+# Terminal 2: Frontend
+cd frontend
+npm run dev
 ```
 
-## CV-воркер (Python)
+### Отладка
 
-Код расположен в `backend/cv_worker`. По умолчанию запускается через `docker-compose` и подключается к `RABBITMQ_URL`/MinIO. Модели PointNet/PointNet++ и вспомогательные скрипты находятся в `Pointnet_Pointnet2_pytorch/`. Для ручного запуска убедитесь в наличии Python 3.10+, PyTorch и зависимостей, а также переменных окружения MinIO/RabbitMQ. Ресурсные лимиты задаются в compose.
+**Frontend DevTools:**
+- Автоматически открываются в dev режиме
+- `Ctrl+Shift+I` - Toggle DevTools
 
-## Траблшутинг
-- Backend не стартует: проверьте доступность PostgreSQL/MinIO/RabbitMQ и значения переменных окружения (`DATABASE_URL`, `MINIO_*`, `RABBITMQ_URL`).
-- MinIO бакет не создаётся: убедитесь, что `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` корректны и сервис доступен по `MINIO_ENDPOINT`.
-- Нет ответа от воркера: проверьте логи `cv-worker`, доступность RabbitMQ (`http://localhost:15672`), корректность exchange `pcd_files` и наличие ответной очереди.
-- Пустой ответ файла: проверьте размер объекта в MinIO и корректность формата `.pcd` исходного файла.
+**Backend Logs:**
+```bash
+cd backend
+docker-compose logs -f app
+```
 
-## Roadmap (кратко)
-- Выбор/переключение моделей и параметров инференса из UI.
-- Пакетная обработка и очереди задач с прогрессом.
-- Поддержка форматов LAS/LAZ, конвертация в/из `.pcd`.
-- Маскирование/редактирование областей вручную перед автоочисткой.
-- Предпросмотр диффа «до/после» и метрики качества.
+### Линтинг и форматирование
 
-## Редактор лидарных карт: ML-компонент
+**Frontend:**
+```bash
+cd frontend
+npm run lint
+npm run format
+```
 
-**Компонент для автоматизации удаления динамики (движущиеся объекты/стоящие авто) из лидарных PCD/Ply-облаков для статических карт.**
+**Backend:**
+```bash
+cd backend
+go fmt ./...
+go vet ./...
+golangci-lint run
+```
 
-### 🛠️ Стек технологий
+---
 
--   **Языки/ML**: `Python`, `PyTorch (PointNet++)`
--   **Обработка данных**: `PCL`, `Open3D`, `CloudCompare`
--   **ОС/Инструменты**: `Jupyter`, `Colab`, `Kaggle`
+## 📦 Сборка для продакшн
 
-### 📊 Датасеты и обработка
+### Полная сборка
 
-#### KITTI-360
+```bash
+# Сборка backend
+cd backend
+docker-compose build
 
--   **Тип**: Динамические объекты.
--   **Обработка**:
-    -   Фильтрация шумов.
-    -   Нормализация (x, y, z + intensity).
-    -   Oversampling + Downsampling majority
-    -   Object Isolation
-    -   Аугментация (ротации, scaling).
-    -   Разметка классов.
--   **Назначение**: Объекты в движении.
--   **Итоговая метрика модели**: mIoU = 0.5388
+# Сборка frontend
+cd ../frontend
+npm run build
+```
 
-#### Toronto-3D
+### Создание дистрибутива
 
--   **Тип**: Статические элементы (стоящие авто).
--   **Обработка**:
-    -   Конвертация PCD.
-    -   Фильтрация.
-    -   Аугментация (сдвиги, jitter).
-    -   Баланс классов.
--   **Назначение**: Для модели на стоящие объекты.
+```bash
+cd frontend
 
-#### Общее
+# Сборка Electron app
+npm run package
 
--   **Разделение**: Train/val/test (80/10/10).
--   **Форматы**: Унификация форматов.
+# Создание установщиков
+npm run make
+```
 
-### 🚀 ML Pipeline
+Результат в `frontend/dist/`:
+- `LidarCleaner-0.1.0-x86_64.AppImage` (Linux)
+- `LidarCleaner-0.1.0.dmg` (macOS)
+- `LidarCleaner Setup 0.1.0.exe` (Windows)
 
-1.  **Вход**: PCD-файл (e.g., `points.pcd`, `points.ply`).
-2.  **Предобработка**: Фильтрация шумов, нормализация.
-3.  **Сегментация**:
-    -   **Модель 1 (PointNet++ на KITTI-360)**: 0.6 * Loss Focal + 0.4 * Lovász, для объектов в движении.
-    -   **Модель 2 (PointNet++ на Toronto-3D)**: Loss Focal + IoU + Dice, для стоящих авто.
-4.  **Удаление**: Слияние масок, исключение точек.
-5.  **Постобработка**: Заполнение дыр средней высотой (Open3D), вывод `processed_points.pcd`.
-6.  **Валидация**:
-    -   **Метрики**: Accuracy, mIoU. 
-    -   **Визуализация**: CloudCompare.
-  
-### Примеры обработанных файлов можно посмотреть по ссылке на гугл диске:
+---
 
-[📥 Посмотреть файлы на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
+## 📁 Структура проекта
 
-### Ссылки на модели:
-[model_for_action](https://drive.google.com/file/d/10Ki47nx4Y5HdIdCFVNeZQijL_kU3N7Zr/view?usp=sharing),
-[model_for_static](https://drive.google.com/file/d/1JONN8qzJO-GcnOFNhZZNlPNaZOpCqaUD/view?usp=sharing)
+```
+LidarCleaner/
+├── backend/                # Go backend
+│   ├── cmd/               # Entry points
+│   ├── internal/          # Internal packages
+│   ├── pkg/               # Public packages
+│   ├── migrations/        # DB migrations
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   └── go.mod
+│
+├── frontend/              # Electron + React app
+│   ├── src/
+│   │   ├── main/         # Electron main
+│   │   └── renderer/     # React app
+│   ├── dist-electron/    # Compiled electron
+│   ├── public/           # Static assets
+│   ├── package.json
+│   └── vite.config.ts
+│
+├── assets/               # README assets
+│   └── schema.png
+│
+├── start-lidarcleaner.sh # Launch script
+└── README.md
+```
 
+---
 
-## Сравнение
+## 🔧 Технологии
 
-Ниже представлены два изображения для визуального сравнения. 
+### Frontend Technologies
 
-(Так же для теста других `.ply` или `.pcd` файлов можно использовать блокнот [inference.ipynb](https://github.com/qquerellka/LidarCleaner/blob/dev/inference.ipynb) )
+| Технология | Версия | Назначение |
+|-----------|--------|-----------|
+| [Electron](https://www.electronjs.org/) | 30.0 | Desktop framework |
+| [React](https://reactjs.org/) | 18.3 | UI library |
+| [TypeScript](https://www.typescriptlang.org/) | 5.5 | Type safety |
+| [Redux Toolkit](https://redux-toolkit.js.org/) | 2.9 | State management |
+| [Three.js](https://threejs.org/) | 0.180 | 3D rendering |
+| [Mantine](https://mantine.dev/) | 7.15 | UI components |
+| [Vite](https://vitejs.dev/) | 5.4 | Build tool |
+| [esbuild](https://esbuild.github.io/) | 0.25 | JS bundler |
 
-<table>
-  <tr>
-    <td align="center"><strong>До</strong></td>
-    <td align="center"><strong>После</strong></td>
-  </tr>
-  <tr>
-    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp1.jpeg" alt="До" width="100%"></td>
-    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp1.jpeg" alt="После" width="100%"></td>
-  </tr>
-    <tr>
-    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/smp2.jpeg" alt="До" width="100%"></td>
-    <td><img src="https://github.com/qquerellka/LidarCleaner/blob/dev/after_model_smp2.jpeg" alt="После" width="100%"></td>
-  </tr>
-</table>
+### Backend Technologies
 
+| Технология | Версия | Назначение |
+|-----------|--------|-----------|
+| [Go](https://golang.org/) | 1.23 | Backend language |
+| [Gin](https://gin-gonic.com/) | Latest | HTTP framework |
+| [PostgreSQL](https://www.postgresql.org/) | 15 | Database |
+| [MinIO](https://min.io/) | Latest | Object storage |
+| [RabbitMQ](https://www.rabbitmq.com/) | 3 | Message queue |
+| [Docker](https://www.docker.com/) | 20+ | Containerization |
+
+---
+
+## 🐛 Устранение неполадок
+
+### Backend не запускается
+
+**Проблема:** `dial tcp: lookup db: no such host`
+
+**Решение:**
+```bash
+cd backend
+docker-compose down
+docker-compose up -d
+```
+
+---
+
+### Frontend не подключается к Backend
+
+**Проблема:** `ERR_CONNECTION_REFUSED`
+
+**Решение:**
+1. Убедитесь что backend запущен: `curl http://localhost:8000/health`
+2. Проверьте `BACKEND_URL` в frontend
+3. Проверьте логи: `docker-compose logs -f app`
+
+---
+
+### Electron окно не открывается
+
+**Проблема:** Процесс запущен, но окна нет
+
+**Решение:**
+1. Перезапустите приложение
+2. Проверьте консоль на ошибки
+3. Убедитесь что Vite сервер запущен (http://localhost:5173)
+
+---
+
+### Файлы не загружаются
+
+**Проблема:** Большие файлы не открываются
+
+**Решение:**
+- Проверьте размер файла (лимит: 2GB)
+- Увеличьте RAM для Docker
+- Проверьте свободное место на диске
+
+---
+
+### Медленная отрисовка
+
+**Проблема:** Лаги при работе с большими облаками
+
+**Решение:**
+- Уменьшите размер точек
+- Используйте фиксированный цвет вместо цветов вершин
+- Закройте другие приложения
+- Обновите драйверы видеокарты
+
+---
+
+## 🗺️ Roadmap
+
+### v0.2.0 (В разработке)
+- [ ] Поддержка LAS/LAZ форматов
+- [ ] Классификация точек (земля, растительность, здания)
+- [ ] Экспорт в GeoJSON
+- [ ] Облачные вычисления
+
+### v0.3.0 (Планируется)
+- [ ] Мультифайловая работа
+- [ ] Слияние облаков точек
+- [ ] Автоматическое выравнивание
+- [ ] Плагинная система
+
+### v1.0.0 (Цель)
+- [ ] Стабильный API
+- [ ] Полная документация
+- [ ] Производственная готовность
+- [ ] Локализация (EN, RU, CN)
+
+---
+
+## 🤝 Contributing
+
+Мы приветствуем вклад от сообщества! 
+
+### Как внести вклад
+
+1. **Fork** репозиторий
+2. Создайте **feature branch** (`git checkout -b feature/amazing-feature`)
+3. **Commit** изменения (`git commit -m 'Add amazing feature'`)
+4. **Push** в branch (`git push origin feature/amazing-feature`)
+5. Откройте **Pull Request**
+
+### Правила
+
+- Следуйте существующему стилю кода
+- Добавьте тесты для новых функций
+- Обновите документацию
+- Опишите изменения в PR
+
+---
+
+## 📄 Лицензия
+
+Этот проект распространяется под лицензией **MIT**. Подробности в файле [LICENSE](LICENSE).
+
+---
+
+## 👥 Авторы
+
+- **LidarCleaner Team** - [GitHub](https://github.com/lidarcleaner)
+
+---
+
+## 🙏 Благодарности
+
+- [Three.js](https://threejs.org/) за отличную 3D библиотеку
+- [Electron](https://www.electronjs.org/) за desktop framework
+- [Mantine](https://mantine.dev/) за красивые UI компоненты
+- Всем contributors и тестировщикам
+
+---
+
+## 📞 Контакты
+
+- **Issues**: [GitHub Issues](https://github.com/lidarcleaner/app/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/lidarcleaner/app/discussions)
+- **Email**: info@lidarcleaner.app
+
+---
+
+<div align="center">
+
+**Сделано с ❤️ для LiDAR сообщества**
+
+[⬆ Наверх](#-lidarcleaner)
+
+</div>

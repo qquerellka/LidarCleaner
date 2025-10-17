@@ -56,8 +56,8 @@ export default function Home() {
       <AppShell.Navbar p="md">
         <ScrollArea 
           style={{ height: "calc(100vh - 60px)" }}
-          scrollbarSize={6}
-          type="auto"
+          scrollbarSize={0}
+          type="never"
         >
           <FileLoader />
           <Divider my="md" />

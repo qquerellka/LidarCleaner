@@ -9,7 +9,10 @@
     "dev:preload": "esbuild src/main/preload.ts --bundle --platform=node --outdir=dist-electron/preload --format=cjs --sourcemap --watch --external:electron",
     "dev:electron": "wait-on tcp:5173 dist-electron/main/index.js dist-electron/preload/preload.js && electron .",
     "dev": "concurrently -r -n RENDERER,MAIN,PRELOAD,ELECTRON -c yellow,cyan,magenta,green \"npm:dev:renderer\" \"npm:dev:main\" \"npm:dev:preload\" \"npm:dev:electron\"",
-    "build": "vite build",
+    "build:renderer": "vite build",
+    "build:main": "esbuild src/main/index.ts --bundle --platform=node --outdir=dist-electron/main --format=cjs --external:electron",
+    "build:preload": "esbuild src/main/preload.ts --bundle --platform=node --outdir=dist-electron/preload --format=cjs --external:electron",
+    "build": "npm run build:renderer && npm run build:main && npm run build:preload",
     "preview": "electron .",
     "start": "npm run dev"
   },

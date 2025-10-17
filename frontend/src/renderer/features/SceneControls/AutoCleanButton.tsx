@@ -8,10 +8,16 @@ import { setFilePath } from "../../store/uiSlice";
 import {
   showErrorWithDetails,
   showSuccessNotification,
-  showLoadingNotification,
-  updateLoadingToSuccess,
-  updateLoadingToError,
 } from "../../utils/notifications";
+
+// Умный фейковый прогресс
+const FAKE_TOTAL_DURATION = 15 * 60 * 1000; // 15 минут в миллисекундах
+const FAKE_PROGRESS_STAGES = [
+  { target: 5, duration: 0.02 },   // 2% времени (18 сек) → 5% - быстрая инициализация
+  { target: 40, duration: 0.33 },  // 33% времени (5 мин) → 40% - основная обработка
+  { target: 75, duration: 0.40 },  // 40% времени (6 мин) → 75% - основная обработка
+  { target: 95, duration: 0.25 },  // 25% времени (3.75 мин) → 95% - финализация (застревает здесь)
+];
 
 export default function AutoCleanButton() {
   const filePath = useSelector((s: RootState) => s.ui.filePath);
@@ -20,12 +26,75 @@ export default function AutoCleanButton() {
   const [progress, setProgress] = useState<number | null>(null);
   const [currentTaskId, setCurrentTaskId] = useState<string | null>(null);
   const currentTaskIdRef = useRef<string | null>(null);
+  
+  // Фейковый прогресс
+  const [fakeProgress, setFakeProgress] = useState<number>(0);
+  const [hasRealProgress, setHasRealProgress] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0); // в минутах
+  const fakeProgressStartRef = useRef<number>(0);
+  const fakeProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  
   const canRun = !!filePath && !busy;
+
+  // Функция для расчета фейкового прогресса
+  const calculateFakeProgress = (elapsed: number): number => {
+    let accumulatedTime = 0;
+    let prevProgress = 0;
+
+    for (const stage of FAKE_PROGRESS_STAGES) {
+      const stageTime = stage.duration * FAKE_TOTAL_DURATION;
+      
+      if (elapsed < accumulatedTime + stageTime) {
+        // Находимся в этом этапе
+        const stageElapsed = elapsed - accumulatedTime;
+        const stagePercent = stageElapsed / stageTime;
+        const progressDelta = stage.target - prevProgress;
+        return prevProgress + progressDelta * stagePercent;
+      }
+      
+      accumulatedTime += stageTime;
+      prevProgress = stage.target;
+    }
+
+    // После всех этапов - остаемся на 95%
+    return 95;
+  };
+
+  // Фейковый прогресс-бар
+  useEffect(() => {
+    if (busy && !hasRealProgress) {
+      fakeProgressStartRef.current = Date.now();
+      
+      fakeProgressIntervalRef.current = setInterval(() => {
+        const elapsed = Date.now() - fakeProgressStartRef.current;
+        const elapsedMinutes = Math.floor(elapsed / 60000);
+        const newProgress = calculateFakeProgress(elapsed);
+        
+        setFakeProgress(newProgress);
+        setTimeElapsed(elapsedMinutes);
+      }, 500); // Обновляем каждые 500мс
+      
+      return () => {
+        if (fakeProgressIntervalRef.current) {
+          clearInterval(fakeProgressIntervalRef.current);
+          fakeProgressIntervalRef.current = null;
+        }
+      };
+    } else {
+      // Сброс когда обработка завершена
+      if (!busy) {
+        setFakeProgress(0);
+        setHasRealProgress(false);
+        setTimeElapsed(0);
+      }
+    }
+  }, [busy, hasRealProgress]);
 
   useEffect(() => {
     // Подписка на прогресс обработки
     const unsubProgress = window.api.onProcessProgress((p) => {
       if (currentTaskIdRef.current && p.taskId === currentTaskIdRef.current) {
+        setHasRealProgress(true); // Переключаемся на реальный прогресс
         setProgress(p.percent);
       }
     });
@@ -34,20 +103,28 @@ export default function AutoCleanButton() {
     const unsubDone = window.api.onProcessDone((payload) => {
       if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
       
-      // Обработка завершена - открываем новый файл
-      updateLoadingToSuccess('auto-clean', 'Облако точек успешно очищено');
-      setBusy(false);
-      setProgress(null);
-      setCurrentTaskId(null);
-      currentTaskIdRef.current = null;
-      dispatch(setFilePath(payload.path));
+      // Сначала показываем 100%
+      setHasRealProgress(true);
+      setProgress(100);
+      
+      // Затем через небольшую задержку завершаем
+      setTimeout(() => {
+        // Показываем уведомление о завершении
+        showSuccessNotification('Файл успешно обработан и готов к использованию', 'Обработка завершена');
+        
+        setBusy(false);
+        setProgress(null);
+        setCurrentTaskId(null);
+        currentTaskIdRef.current = null;
+        dispatch(setFilePath(payload.path));
+      }, 500);
     });
 
     // Подписка на ошибки обработки
     const unsubError = window.api.onProcessError((payload) => {
       if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
       
-      updateLoadingToError('auto-clean', payload.error);
+      showErrorWithDetails(payload.error, 'Ошибка обработки файла');
       setBusy(false);
       setProgress(null);
       setCurrentTaskId(null);
@@ -65,9 +142,11 @@ export default function AutoCleanButton() {
     if (!filePath) return;
     setBusy(true);
     setProgress(null);
+    setFakeProgress(0);
+    setHasRealProgress(false);
+    setTimeElapsed(0);
     
     try {
-      showLoadingNotification('Отправка файла на обработку...', 'auto-clean');
       // Получаем taskId и ждем события process-done
       const taskId = await window.api.backendProcessDynamic(filePath);
       setCurrentTaskId(taskId);
@@ -76,8 +155,21 @@ export default function AutoCleanButton() {
       showErrorWithDetails(e, 'Не удалось обработать файл');
       setBusy(false);
       setProgress(null);
+      setFakeProgress(0);
+      setHasRealProgress(false);
     }
   };
+
+  // Функция форматирования времени
+  const formatTime = (minutes: number) => {
+    if (minutes < 1) return "< 1 мин";
+    if (minutes === 1) return "1 мин";
+    return `${minutes} мин`;
+  };
+
+  // Определяем какой прогресс показывать
+  const displayProgress = hasRealProgress && progress !== null ? progress : fakeProgress;
+  const isStuck = !hasRealProgress && displayProgress >= 94.5; // Считаем "застрявшим" если >= 95%
 
   return (
     <Paper p="md" withBorder>
@@ -95,21 +187,39 @@ export default function AutoCleanButton() {
           {busy ? "Обработка..." : "Удалить динамику"}
         </Button>
         
-        {busy && progress !== null && (
+        {busy && (
           <Stack gap={4}>
-            <Text size="xs" c="dimmed" ta="center">
-              Прогресс: {Math.round(progress)}%
-            </Text>
-            <Progress value={progress} color="cyan" size="sm" striped animated />
-          </Stack>
-        )}
-        
-        {busy && progress === null && (
-          <Stack gap={4}>
-            <Text size="xs" c="dimmed" ta="center">
-              Обработка на сервере...
-            </Text>
-            <Progress value={100} color="cyan" size="sm" striped animated />
+            <Progress 
+              value={displayProgress} 
+              color={
+                displayProgress < 50 ? "blue" : 
+                displayProgress < 80 ? "cyan" : 
+                isStuck ? "yellow" : 
+                "green"
+              }
+              size="lg"
+              radius="sm"
+              striped={displayProgress < 100}
+              animated={displayProgress < 100}
+            />
+            
+            <Stack gap={2}>
+              <Text size="xs" c="dimmed" ta="center">
+                {Math.round(displayProgress)}% • Прошло: {formatTime(timeElapsed)}
+              </Text>
+              
+              {isStuck && (
+                <Text size="xs" c="yellow" ta="center" fs="italic">
+                  ⏳ Обработка больших файлов может занять время...
+                </Text>
+              )}
+              
+              {!isStuck && displayProgress < 95 && (
+                <Text size="xs" c="dimmed" ta="center">
+                  ~{formatTime(15 - timeElapsed)} осталось
+                </Text>
+              )}
+            </Stack>
           </Stack>
         )}
         
