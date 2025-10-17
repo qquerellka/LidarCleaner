@@ -12,6 +12,16 @@ import {
   loadViewPresetsFromStorage,
   upsertViewPreset,
 } from "../store/sceneSlice";
+import {
+  setSelectedIndices,
+  setSelectionBox,
+  setCanUndo,
+} from "../store/editSlice";
+import {
+  getPointsInSelectionBox,
+  updateSelectionColors,
+  deleteSelectedPoints,
+} from "./boxSelection";
 
 function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer | SharedArrayBuffer {
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
@@ -51,6 +61,8 @@ export default function Scene3D() {
     clippingEnabled, clipX, clipY, clipZ,
     viewPresets,
   } = useSelector((s: RootState) => s.scene);
+  
+  const { isEditMode, selectedIndices, selectionBox } = useSelector((s: RootState) => s.edit);
 
   const pointsRef = useRef<THREE.Points | null>(null);
   const axesRef = useRef<THREE.AxesHelper | null>(null);
@@ -62,6 +74,12 @@ export default function Scene3D() {
   const controlsRef = useRef<OrbitControls | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  
+  // Selection box refs
+  const [isSelecting, setIsSelecting] = useState(false);
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const originalGeometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const undoStackRef = useRef<Float32Array[]>([]);
   const mouseNdcRef = useRef(new THREE.Vector2());
   const helpVisibleRef = useRef<boolean>(false);
   const flyModeRef = useRef<boolean>(false);
@@ -213,7 +231,8 @@ export default function Scene3D() {
     controls.addEventListener("change", () => {
       if (controls.target.y < 0) {
         controls.target.y = 0;
-        controls.update();
+        // НЕ вызываем controls.update() здесь! Это создает бесконечную рекурсию
+        // controls.update() будет вызван в animate() на следующем кадре
       }
     });
     controlsRef.current = controls;
@@ -466,6 +485,12 @@ export default function Scene3D() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
+      
+      // Ctrl для фиксации камеры
+      if (e.key === "Control") {
+        controls.enabled = false;
+      }
+      
       if (e.key === "T" || e.key === "t") {
         flyModeRef.current = !flyModeRef.current;
         if (flyModeRef.current) renderer.domElement.requestPointerLock?.();
@@ -487,6 +512,11 @@ export default function Scene3D() {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keysRef.current.delete(e.key.toLowerCase());
+      
+      // Отпускание Ctrl - разблокировать камеру
+      if (e.key === "Control") {
+        controls.enabled = true;
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -626,6 +656,180 @@ export default function Scene3D() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Box Selection в режиме редактирования
+  useEffect(() => {
+    if (!isEditMode || !rendererRef.current || !cameraRef.current || !controlsRef.current) return;
+
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!e.shiftKey) return; // Box selection только с Shift
+      
+      // ВАЖНО: предотвращаем все default действия И останавливаем propagation
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      // Отключаем controls ДО начала выделения
+      controls.enabled = false;
+      
+      setIsSelecting(true);
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      selectionStartRef.current = { x, y };
+      dispatch(setSelectionBox({ isActive: true, startX: x, startY: y, endX: x, endY: y }));
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isSelecting || !selectionStartRef.current) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      dispatch(setSelectionBox({
+        isActive: true,
+        startX: selectionStartRef.current.x,
+        startY: selectionStartRef.current.y,
+        endX: x,
+        endY: y,
+      }));
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!isSelecting || !selectionStartRef.current) {
+        // Если не было выделения, но controls были отключены - включаем обратно
+        if (!controls.enabled) {
+          controls.enabled = true;
+        }
+        return;
+      }
+      
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const endX = e.clientX - rect.left;
+      const endY = e.clientY - rect.top;
+      
+      // Выполняем выделение точек
+      const points = pointsRef.current;
+      if (points && points.geometry) {
+        const selected = getPointsInSelectionBox(
+          points.geometry,
+          camera,
+          selectionStartRef.current,
+          { x: endX, y: endY },
+          rect.width,
+          rect.height,
+          points.matrixWorld
+        );
+        
+        dispatch(setSelectedIndices(selected));
+      }
+      
+      // Очищаем состояние и включаем controls
+      setIsSelecting(false);
+      selectionStartRef.current = null;
+      dispatch(setSelectionBox(null));
+      controls.enabled = true;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" && selectedIndices.size > 0) {
+        window.dispatchEvent(new CustomEvent("edit-delete-selected"));
+      }
+      if (e.key === "Escape") {
+        dispatch(setSelectedIndices([]));
+      }
+    };
+
+    // Используем capture: true чтобы обработчик срабатывал ПЕРЕД OrbitControls
+    renderer.domElement.addEventListener("mousedown", handleMouseDown, { capture: true });
+    renderer.domElement.addEventListener("mousemove", handleMouseMove, { capture: true });
+    renderer.domElement.addEventListener("mouseup", handleMouseUp, { capture: true });
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      renderer.domElement.removeEventListener("mousedown", handleMouseDown, { capture: true });
+      renderer.domElement.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      renderer.domElement.removeEventListener("mouseup", handleMouseUp, { capture: true });
+      window.removeEventListener("keydown", handleKeyDown);
+      controls.enabled = true;
+    };
+  }, [isEditMode, isSelecting, selectedIndices.size, dispatch]);
+
+  // Визуальная подсветка выделенных точек
+  useEffect(() => {
+    const points = pointsRef.current;
+    if (!points || !points.geometry || !isEditMode) return;
+    
+    updateSelectionColors(points.geometry, selectedIndices);
+  }, [selectedIndices, isEditMode]);
+
+  // Обработчики событий редактирования
+  useEffect(() => {
+    const handleDelete = () => {
+      const points = pointsRef.current;
+      if (!points || !points.geometry || selectedIndices.size === 0) return;
+      
+      // Сохраняем в undo stack
+      const positions = points.geometry.attributes.position;
+      undoStackRef.current.push(positions.array.slice() as Float32Array);
+      dispatch(setCanUndo(true));
+      
+      // Удаляем точки
+      const newGeometry = deleteSelectedPoints(points.geometry, selectedIndices);
+      points.geometry.dispose();
+      points.geometry = newGeometry;
+      
+      // Очищаем выделение
+      dispatch(setSelectedIndices([]));
+    };
+
+    const handleUndo = () => {
+      const points = pointsRef.current;
+      if (!points || undoStackRef.current.length === 0) return;
+      
+      const previousPositions = undoStackRef.current.pop();
+      if (!previousPositions) return;
+      
+      // Восстанавливаем геометрию
+      const newGeometry = new THREE.BufferGeometry();
+      newGeometry.setAttribute('position', new THREE.BufferAttribute(previousPositions, 3));
+      
+      // Копируем цвета если есть
+      if (points.geometry.attributes.color) {
+        const colors = points.geometry.attributes.color.array;
+        newGeometry.setAttribute('color', new THREE.BufferAttribute(colors.slice(), 3));
+      }
+      
+      points.geometry.dispose();
+      points.geometry = newGeometry;
+      
+      dispatch(setCanUndo(undoStackRef.current.length > 0));
+      dispatch(setSelectedIndices([]));
+    };
+
+    window.addEventListener("edit-delete-selected", handleDelete);
+    window.addEventListener("edit-undo", handleUndo);
+
+    return () => {
+      window.removeEventListener("edit-delete-selected", handleDelete);
+      window.removeEventListener("edit-undo", handleUndo);
+    };
+  }, [selectedIndices, dispatch]);
 
   // тумблеры видимости гизмосов
   useEffect(() => {
@@ -899,6 +1103,23 @@ export default function Scene3D() {
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
+      {/* Selection Box Overlay */}
+      {selectionBox && selectionBox.isActive && (
+        <div
+          style={{
+            position: "absolute",
+            left: Math.min(selectionBox.startX, selectionBox.endX),
+            top: Math.min(selectionBox.startY, selectionBox.endY),
+            width: Math.abs(selectionBox.endX - selectionBox.startX),
+            height: Math.abs(selectionBox.endY - selectionBox.startY),
+            border: "2px dashed #22d3ee",
+            background: "rgba(34, 211, 238, 0.1)",
+            pointerEvents: "none",
+            zIndex: 10,
+          }}
+        />
+      )}
+      
       <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2 }}>
         <Group gap="xs">
           <Button
@@ -949,7 +1170,7 @@ export default function Scene3D() {
           maxWidth: 380,
         }}
       >
-{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
+{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nCtrl (hold) — Lock camera\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ import FileLoader from "../features/FileLoader/FileLoader";
 import SceneControls from "../features/SceneControls/SceneControls";
 import AutoCleanButton from "../features/SceneControls/AutoCleanButton";
 import ExportButtons from "../features/SceneControls/ExportButtons";
+import EditControls from "../features/SceneControls/EditControls";
 
 export default function Home() {
   return (
@@ -31,6 +32,8 @@ export default function Home() {
           <FileLoader />
           <Divider my="md" />
           <AutoCleanButton />
+          <Divider my="md" />
+          <EditControls />
           <Divider my="md" />
           <ExportButtons />
           <Divider my="md" />
