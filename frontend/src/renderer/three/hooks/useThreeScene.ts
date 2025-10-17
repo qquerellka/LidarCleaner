@@ -30,7 +30,7 @@ export interface ThreeSceneRefs {
  * - Resize handling
  */
 export function useThreeScene(
-  mountRef: React.RefObject<HTMLDivElement>,
+  mountRef: React.RefObject<HTMLDivElement | null>,
   options?: {
     showAxes?: boolean;
     showLight?: boolean;

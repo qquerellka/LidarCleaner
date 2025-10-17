@@ -1,13 +1,13 @@
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { Button, Paper, Stack, Text, Switch, Group, Badge } from "@mantine/core";
-import { IconEdit, IconTrash, IconEyeOff, IconFocus2, IconArrowBack, IconEye } from "@tabler/icons-react";
+import { Button, Paper, Stack, Text, Switch, Group, Badge, Divider, Slider } from "@mantine/core";
+import { IconEdit, IconTrash, IconEyeOff, IconFocus2, IconArrowBack, IconEye, IconReplace, IconBrush } from "@tabler/icons-react";
 import type { RootState } from "../../store";
-import { setEditMode, clearSelection } from "../../store/editSlice";
+import { setEditMode, clearSelection, invertSelection, setBrushMode, setBrushRadius } from "../../store/editSlice";
 
 export default function EditControls() {
   const dispatch = useDispatch();
-  const { isEditMode, selectedIndices, hiddenIndices, canUndo } = useSelector((s: RootState) => s.edit);
+  const { isEditMode, selectedIndices, hiddenIndices, selectionStats, brushMode, brushRadius, canUndo } = useSelector((s: RootState) => s.edit);
   const { filePath, pointCount } = useSelector((s: RootState) => s.ui);
 
   const selectedCount = selectedIndices.length;
@@ -44,6 +44,18 @@ export default function EditControls() {
 
   const handleShowAll = () => {
     window.dispatchEvent(new CustomEvent("edit-show-all"));
+  };
+
+  const handleInvertSelection = () => {
+    dispatch(invertSelection(pointCount));
+  };
+
+  const handleToggleBrush = () => {
+    dispatch(setBrushMode(!brushMode));
+  };
+
+  const handleBrushRadiusChange = (value: number) => {
+    dispatch(setBrushRadius(value));
   };
 
   return (
@@ -97,14 +109,94 @@ export default function EditControls() {
               )}
             </Stack>
 
-            <Stack gap={4}>
-              <Text size="xs" c="dimmed">
-                💡 Shift + перетащите мышь для выделения области
-              </Text>
-              <Text size="xs" c="dimmed">
-                🔒 Ctrl (удерживать) для блокировки камеры
-              </Text>
-            </Stack>
+            {selectionStats && (
+              <>
+                <Divider label="Статистика выделения" labelPosition="center" />
+                <Stack gap={4}>
+                  <Text size="xs" c="dimmed">
+                    📏 Размеры: {selectionStats.bbox.sizeX.toFixed(2)} × {selectionStats.bbox.sizeY.toFixed(2)} × {selectionStats.bbox.sizeZ.toFixed(2)} м
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    📈 Высота: {selectionStats.heightRange.min.toFixed(2)} — {selectionStats.heightRange.max.toFixed(2)} м
+                  </Text>
+                </Stack>
+              </>
+            )}
+
+            <Divider label="Режим выделения" labelPosition="center" />
+            
+            <Button
+              onClick={handleToggleBrush}
+              size="sm"
+              variant={brushMode ? "filled" : "light"}
+              color={brushMode ? "teal" : "gray"}
+              leftSection={<IconBrush size={16} />}
+              fullWidth
+            >
+              {brushMode ? `🖌️ Кисть (${(brushRadius * 100).toFixed(0)} см)` : "Кисть (B)"}
+            </Button>
+
+            {brushMode ? (
+              <>
+                <Stack gap="xs">
+                  <Group justify="space-between">
+                    <Text size="xs" fw={500}>Размер кисти</Text>
+                    <Text size="xs" c="dimmed">{(brushRadius * 100).toFixed(0)} см</Text>
+                  </Group>
+                  <Slider
+                    value={brushRadius}
+                    onChange={handleBrushRadiusChange}
+                    min={0.01}
+                    max={1.0}
+                    step={0.01}
+                    marks={[
+                      { value: 0.01, label: '1см' },
+                      { value: 0.25, label: '25см' },
+                      { value: 0.5, label: '50см' },
+                      { value: 0.75, label: '75см' },
+                      { value: 1.0, label: '100см' },
+                    ]}
+                    color="teal"
+                  />
+                </Stack>
+                <Stack gap={4}>
+                  <Text size="xs" c="dimmed">
+                    🖱️ Клик/Drag для выделения
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    🎯 Alt + Клик для вычитания
+                  </Text>
+                  <Divider />
+                  <Text size="xs" c="dimmed" fw={500}>
+                    Управление размером:
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    ⌨️ [ ] — быстро (±5 см)
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    ⌨️ +/- — точно (±2 см)
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    🎚️ Слайдер — визуально
+                  </Text>
+                </Stack>
+              </>
+            ) : (
+              <Stack gap={4}>
+                <Text size="xs" c="dimmed">
+                  💡 Shift + перетащите для выделения
+                </Text>
+                <Text size="xs" c="dimmed">
+                  ➕ Shift + Ctrl + перетащите для добавления
+                </Text>
+                <Text size="xs" c="dimmed">
+                  ➖ Shift + Alt + перетащите для вычитания
+                </Text>
+                <Text size="xs" c="dimmed">
+                  🔒 Ctrl (удерживать) для блокировки камеры
+                </Text>
+              </Stack>
+            )}
 
             <Stack gap="xs">
               <Button
@@ -139,6 +231,18 @@ export default function EditControls() {
                   Изолировать
                 </Button>
               </Group>
+
+              <Button
+                onClick={handleInvertSelection}
+                disabled={!hasSelection}
+                size="sm"
+                variant="light"
+                color="violet"
+                leftSection={<IconReplace size={16} />}
+                fullWidth
+              >
+                Инвертировать (Ctrl+I)
+              </Button>
 
               {hasSelection && (
                 <Button

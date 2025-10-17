@@ -1,13 +1,19 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { useDispatch } from 'react-redux';
 import {
   setSelectedIndices,
+  addToSelection,
+  removeFromSelection,
   setSelectionBox,
   setCanUndo,
   setHiddenIndices,
   clearHidden,
+  invertSelection,
+  setSelectionStats,
+  setBrushMode,
+  adjustBrushRadius,
 } from '../../store/editSlice';
 import { setPointCount } from '../../store/uiSlice';
 import {
@@ -15,6 +21,8 @@ import {
   updateSelectionColors,
   deleteSelectedPoints,
 } from '../boxSelection';
+import { calculateSelectionStats } from '../selectionStats';
+import { getPointsInBrushRadius, getBrushCursorPosition } from '../brushSelection';
 
 const MAX_UNDO_STACK_SIZE = 20;
 
@@ -22,11 +30,15 @@ export interface UseEditModeOptions {
   isEditMode: boolean;
   selectedIndices: number[];
   hiddenIndices: number[];
-  renderer: THREE.WebGLRenderer | null;
-  camera: THREE.PerspectiveCamera | null;
-  controls: OrbitControls | null;
+  brushMode: boolean;
+  brushRadius: number;
+  rendererRef: React.RefObject<THREE.WebGLRenderer | null>;
+  cameraRef: React.RefObject<THREE.PerspectiveCamera | null>;
+  controlsRef: React.RefObject<OrbitControls | null>;
+  raycasterRef: React.RefObject<THREE.Raycaster | null>;
+  sceneRef: React.RefObject<THREE.Scene | null>;
   pointsRef: React.MutableRefObject<THREE.Points | null>;
-  colorMode: 'fixed' | 'vertex';
+  colorMode: 'vertex' | 'fixed';
   fixedColor: string;
 }
 
@@ -63,17 +75,20 @@ function applyHeightColors(geo: THREE.BufferGeometry) {
 export function useEditMode(options: UseEditModeOptions) {
   const dispatch = useDispatch();
   const [isSelecting, setIsSelecting] = useState(false);
+  const [isBrushing, setIsBrushing] = useState(false);
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const selectionModifiersRef = useRef<{ ctrl: boolean; alt: boolean } | null>(null);
   const savedCameraStateRef = useRef<{ position: THREE.Vector3; target: THREE.Vector3 } | null>(null);
   const undoStackRef = useRef<Float32Array[]>([]);
+  const brushCursorRef = useRef<THREE.Mesh | null>(null);
 
   // Box Selection handlers
   useEffect(() => {
-    if (!options.isEditMode || !options.renderer || !options.camera || !options.controls) return;
-
-    const renderer = options.renderer;
-    const camera = options.camera;
-    const controls = options.controls;
+    const renderer = options.rendererRef.current;
+    const camera = options.cameraRef.current;
+    const controls = options.controlsRef.current;
+    
+    if (!options.isEditMode || !renderer || !camera || !controls) return;
 
     const handleMouseDown = (e: MouseEvent) => {
       if (!e.shiftKey) return;
@@ -86,6 +101,12 @@ export function useEditMode(options: UseEditModeOptions) {
       savedCameraStateRef.current = {
         position: camera.position.clone(),
         target: controls.target.clone()
+      };
+
+      // Сохраняем модификаторы для additive/subtractive selection
+      selectionModifiersRef.current = {
+        ctrl: e.ctrlKey || e.metaKey,
+        alt: e.altKey
       };
 
       controls.enabled = false;
@@ -149,7 +170,18 @@ export function useEditMode(options: UseEditModeOptions) {
           points.matrixWorld
         );
 
-        dispatch(setSelectedIndices(selected));
+        // Применяем выделение в зависимости от модификаторов
+        const modifiers = selectionModifiersRef.current;
+        if (modifiers?.ctrl) {
+          // Ctrl - добавить к выделению
+          dispatch(addToSelection(selected));
+        } else if (modifiers?.alt) {
+          // Alt - вычесть из выделения
+          dispatch(removeFromSelection(selected));
+        } else {
+          // Без модификаторов - заменить выделение
+          dispatch(setSelectedIndices(selected));
+        }
       }
 
       // Восстанавливаем позицию камеры (защита от случайного движения)
@@ -163,6 +195,7 @@ export function useEditMode(options: UseEditModeOptions) {
 
       setIsSelecting(false);
       selectionStartRef.current = null;
+      selectionModifiersRef.current = null;
       dispatch(setSelectionBox(null));
       
       // Включаем controls с задержкой, чтобы OrbitControls не обработал текущее mouseup событие
@@ -178,13 +211,23 @@ export function useEditMode(options: UseEditModeOptions) {
       if (e.key === 'Escape') {
         dispatch(setSelectedIndices([]));
       }
-      // Ctrl+Z для undo
+      // Ctrl+Z для undo (приоритет)
       if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent('edit-undo'));
         return;
       }
-      // Ctrl для блокировки камеры
+      // Ctrl+I для инверта выделения
+      if ((e.ctrlKey || e.metaKey) && (e.key === 'i' || e.key === 'I')) {
+        e.preventDefault();
+        const points = options.pointsRef.current;
+        if (points && points.geometry) {
+          const totalCount = points.geometry.attributes.position.count;
+          dispatch(invertSelection(totalCount));
+        }
+        return;
+      }
+      // Ctrl для блокировки камеры (только если нет других клавиш)
       if (e.key === 'Control' && !e.repeat) {
         controls.enabled = false;
       }
@@ -210,7 +253,7 @@ export function useEditMode(options: UseEditModeOptions) {
       window.removeEventListener('keyup', handleKeyUp);
       controls.enabled = true;
     };
-  }, [options.isEditMode, isSelecting, options.selectedIndices.length, dispatch, options]);
+  }, [options.isEditMode, isSelecting, options.selectedIndices.length, dispatch, options.pointsRef, options.rendererRef, options.cameraRef, options.controlsRef]);
 
   // Визуальная подсветка выделенных и скрытых точек
   useEffect(() => {
@@ -265,9 +308,7 @@ export function useEditMode(options: UseEditModeOptions) {
       newGeometry.setAttribute('position', new THREE.BufferAttribute(previousPositions, 3));
 
       // Применяем цвета заново
-      if (options.colorMode === 'fixed') {
-        // Цвет будет применен материалом
-      } else {
+      if (options.colorMode === 'vertex') {
         applyHeightColors(newGeometry);
       }
 
@@ -339,9 +380,233 @@ export function useEditMode(options: UseEditModeOptions) {
     };
   }, [options.selectedIndices, options.hiddenIndices, dispatch, options.colorMode, options.fixedColor, options.pointsRef]);
 
+  // Selection Stats (рассчитываем при изменении выделения)
+  useEffect(() => {
+    const points = options.pointsRef.current;
+    if (!points || !points.geometry || !options.isEditMode || options.selectedIndices.length === 0) {
+      dispatch(setSelectionStats(null));
+      return;
+    }
+
+    const stats = calculateSelectionStats(points.geometry, options.selectedIndices, points.matrixWorld);
+    dispatch(setSelectionStats(stats));
+  }, [options.selectedIndices, options.isEditMode, dispatch, options.pointsRef]);
+
+  // Brush Cursor визуализация
+  useEffect(() => {
+    const scene = options.sceneRef.current;
+    
+    if (!scene || !options.brushMode || !options.isEditMode) {
+      // Удаляем cursor если brush mode выключен
+      if (brushCursorRef.current && scene) {
+        scene.remove(brushCursorRef.current);
+        brushCursorRef.current.geometry.dispose();
+        (brushCursorRef.current.material as THREE.Material).dispose();
+        brushCursorRef.current = null;
+      }
+      return;
+    }
+
+    // Создаем круглый курсор для кисти
+    if (!brushCursorRef.current) {
+      const geometry = new THREE.CircleGeometry(options.brushRadius, 32);
+      const material = new THREE.MeshBasicMaterial({
+        color: 0x00ffff,
+        transparent: true,
+        opacity: 0.3,
+        side: THREE.DoubleSide,
+        depthTest: false, // Всегда видим поверх точек
+      });
+      brushCursorRef.current = new THREE.Mesh(geometry, material);
+      brushCursorRef.current.renderOrder = 999; // Рендерим поверх всего
+      scene.add(brushCursorRef.current);
+    }
+
+    // Обновляем размер курсора при изменении радиуса
+    const cursor = brushCursorRef.current;
+    cursor.geometry.dispose();
+    cursor.geometry = new THREE.CircleGeometry(options.brushRadius, 32);
+    cursor.visible = false; // Скрываем пока не наведем мышь
+
+    return () => {
+      if (brushCursorRef.current && scene) {
+        scene.remove(brushCursorRef.current);
+        brushCursorRef.current.geometry.dispose();
+        (brushCursorRef.current.material as THREE.Material).dispose();
+        brushCursorRef.current = null;
+      }
+    };
+  }, [options.brushMode, options.brushRadius, options.isEditMode, options.sceneRef]);
+
+  // Brush Selection обработчики
+  useEffect(() => {
+    const renderer = options.rendererRef.current;
+    const camera = options.cameraRef.current;
+    const raycaster = options.raycasterRef.current;
+    const controls = options.controlsRef.current;
+    
+    if (!options.brushMode || !options.isEditMode || !renderer || !camera || !raycaster || !controls) return;
+
+    const handleBrushMouseMove = (e: MouseEvent) => {
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      // Обновляем позицию brush cursor
+      const points = options.pointsRef.current;
+      if (points && brushCursorRef.current) {
+        const cursorPos = getBrushCursorPosition(
+          camera,
+          x,
+          y,
+          rect.width,
+          rect.height,
+          raycaster,
+          points
+        );
+
+        if (cursorPos) {
+          brushCursorRef.current.position.copy(cursorPos);
+          brushCursorRef.current.lookAt(camera.position);
+          brushCursorRef.current.visible = true;
+        } else {
+          brushCursorRef.current.visible = false;
+        }
+      }
+
+      // Если brushing (зажата кнопка мыши) - выделяем точки
+      if (isBrushing && points && points.geometry) {
+        const selected = getPointsInBrushRadius(
+          points.geometry,
+          camera,
+          x,
+          y,
+          rect.width,
+          rect.height,
+          options.brushRadius,
+          points.matrixWorld,
+          raycaster
+        );
+
+        if (e.altKey) {
+          // Alt - вычитание
+          dispatch(removeFromSelection(selected));
+        } else {
+          // Обычное - добавление
+          dispatch(addToSelection(selected));
+        }
+      }
+    };
+
+    const handleBrushMouseDown = (e: MouseEvent) => {
+      if (e.shiftKey) return; // Box selection имеет приоритет
+
+      e.preventDefault();
+      controls.enabled = false;
+      setIsBrushing(true);
+
+      // Сразу выделяем точки в текущей позиции
+      const points = options.pointsRef.current;
+      if (points && points.geometry && brushCursorRef.current) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const selected = getPointsInBrushRadius(
+          points.geometry,
+          camera,
+          x,
+          y,
+          rect.width,
+          rect.height,
+          options.brushRadius,
+          points.matrixWorld,
+          raycaster
+        );
+
+        if (e.altKey) {
+          dispatch(removeFromSelection(selected));
+        } else if (e.ctrlKey || e.metaKey) {
+          dispatch(addToSelection(selected));
+        } else {
+          dispatch(setSelectedIndices(selected));
+        }
+      }
+    };
+
+    const handleBrushMouseUp = () => {
+      if (isBrushing) {
+        setIsBrushing(false);
+        setTimeout(() => {
+          if (controls) controls.enabled = true;
+        }, 10);
+      }
+    };
+
+    renderer.domElement.addEventListener('mousemove', handleBrushMouseMove);
+    renderer.domElement.addEventListener('mousedown', handleBrushMouseDown, { capture: true });
+    renderer.domElement.addEventListener('mouseup', handleBrushMouseUp);
+
+    return () => {
+      renderer.domElement.removeEventListener('mousemove', handleBrushMouseMove);
+      renderer.domElement.removeEventListener('mousedown', handleBrushMouseDown, { capture: true });
+      renderer.domElement.removeEventListener('mouseup', handleBrushMouseUp);
+      if (controls) controls.enabled = true;
+    };
+  }, [options.brushMode, options.isEditMode, isBrushing, options.brushRadius, dispatch, options.pointsRef, options.rendererRef, options.cameraRef, options.raycasterRef, options.controlsRef]);
+
+  // Keyboard shortcuts для brush mode
+  useEffect(() => {
+    if (!options.isEditMode) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // B - toggle brush mode
+      if (e.key === 'b' || e.key === 'B') {
+        if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+          dispatch(setBrushMode(!options.brushMode));
+        }
+      }
+
+      // [ - уменьшить размер кисти
+      if (e.key === '[') {
+        e.preventDefault();
+        dispatch(adjustBrushRadius(-0.05)); // -5 см за раз
+      }
+
+      // ] - увеличить размер кисти
+      if (e.key === ']') {
+        e.preventDefault();
+        dispatch(adjustBrushRadius(0.05)); // +5 см за раз
+      }
+
+      // - (минус) - уменьшить немного
+      if (e.key === '-' || e.key === '_') {
+        if (options.brushMode) {
+          e.preventDefault();
+          dispatch(adjustBrushRadius(-0.02)); // -2 см
+        }
+      }
+
+      // = или + - увеличить немного
+      if (e.key === '=' || e.key === '+') {
+        if (options.brushMode) {
+          e.preventDefault();
+          dispatch(adjustBrushRadius(0.02)); // +2 см
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [options.isEditMode, options.brushMode, dispatch]);
+
   return {
     isSelecting,
+    isBrushing,
     undoStackRef,
+    brushCursorRef,
   };
 }
 
