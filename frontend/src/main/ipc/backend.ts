@@ -151,40 +151,133 @@ export function registerBackendIpc() {
     }
   );
 
-  // Отправляем открытый файл на POST /files/download, сохраняем ответ и возвращаем путь
+  // Task management for processing + cancel support
+  const processingTasks: Map<string, AbortController> = new Map();
+
+  ipcMain.handle(
+    "backend:cancelProcess",
+    async (_evt, payload: { taskId: string }) => {
+      const { taskId } = payload;
+      const ctrl = processingTasks.get(taskId);
+      if (!ctrl) return { ok: false, message: "unknown task" };
+      try {
+        ctrl.abort();
+        processingTasks.delete(taskId);
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, message: String(e) };
+      }
+    }
+  );
+
+  // Start processing and return taskId immediately. Work runs in background and emits events:
+  // 'backend:process-progress' { taskId, received, total, percent }
+  // 'backend:process-done' { taskId, path }
+  // 'backend:process-error' { taskId, error }
   ipcMain.handle(
     "backend:processDynamic",
     async (_evt, payload: { filePath: string; suggestedName?: string }) => {
       const { filePath, suggestedName } = payload;
+      const taskId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
-      const form = new FormData();
-      form.append("file", createReadStream(filePath));
+      const controller = new AbortController();
+      processingTasks.set(taskId, controller);
 
-      const response = await api.post(`/files/download`, form, {
-        headers: form.getHeaders(),
-        responseType: "stream",
-        timeout: 10 * 60_000,
-      });
+      // run background worker
+      (async () => {
+        const form = new FormData();
+        form.append("file", createReadStream(filePath));
 
-      // Пытаемся вытащить имя из Content-Disposition
-      const cd = String(response.headers["content-disposition"] || "");
-      const match = /filename="?([^"]+)"?/i.exec(cd);
+        try {
+          const response = await api.post(`/files/download`, form, {
+            headers: form.getHeaders(),
+            responseType: "stream",
+            timeout: 2 * 60 * 60_000,
+            maxBodyLength: Infinity,
+            signal: controller.signal as any,
+          });
 
-      let outName = suggestedName || (match ? match[1] : null);
-      if (!outName) {
-        const orig = basename(filePath);
-        outName = orig.replace(/(\.[^.]+)?$/, "-cleaned$1");
-      }
+          const sinkName = `proc-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+          const sinkPath = join(getTempDir(), sinkName);
+          const writer = createWriteStream(sinkPath);
 
-      const outPath = join(getTempDir(), outName);
-      await new Promise<void>((resolve, reject) => {
-        const writer = createWriteStream(outPath);
-        response.data.pipe(writer);
-        writer.on("finish", resolve);
-        writer.on("error", reject);
-      });
+          let received = 0;
+          const contentLengthHeader = response.headers["content-length"];
+          const total = contentLengthHeader ? parseInt(String(contentLengthHeader), 10) : null;
 
-      return outPath;
+          const CHUNK_PEEK = 512;
+          let firstChunk: Buffer | null = null;
+          let outName: string | null = null;
+          const cd = String(response.headers["content-disposition"] || "");
+          const match = /filename=\"?([^\";]+)\"?/i.exec(cd);
+          if (match) outName = match[1];
+
+          await new Promise<void>((resolve, reject) => {
+            response.data.on("data", (chunk: Buffer | string) => {
+              try {
+                const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+                if (!firstChunk) firstChunk = Buffer.from(buf.slice(0, CHUNK_PEEK));
+                received += buf.length;
+                writer.write(buf);
+
+                const pct = total ? Math.round((received / total) * 100) : null;
+                for (const win of BrowserWindow.getAllWindows()) {
+                  win.webContents.send("backend:process-progress", { taskId, received, total, percent: pct });
+                }
+              } catch (e) {
+                // ignore per-chunk errors
+              }
+            });
+
+            response.data.on("end", () => {
+              writer.end();
+            });
+
+            response.data.on("error", (e: Error) => reject(e));
+            writer.on("finish", () => resolve());
+            writer.on("error", (e) => reject(e));
+          });
+
+          if (!outName) {
+            const hint = (suggestedName || basename(filePath)).replace(/(\.[^.]+)?$/, "");
+            if (firstChunk) {
+              const buf = firstChunk as Buffer;
+              const head = buf.toString("utf8", 0, Math.min(buf.length, 64)).toLowerCase();
+              if (head.includes("ply")) outName = `${hint}.ply`;
+              else if (head.includes("# .pcd") || head.includes(".pcd") || head.includes("version")) outName = `${hint}.pcd`;
+              else outName = `${hint}-cleaned.ply`;
+            } else {
+              outName = `${hint}-cleaned.ply`;
+            }
+          }
+
+          const outPath = join(getTempDir(), outName);
+          try {
+            await fsp.rename(sinkPath, outPath);
+          } catch (e) {
+            try {
+              await fsp.copyFile(sinkPath, outPath);
+              await fsp.unlink(sinkPath);
+            } catch (_) {
+              // ignore
+            }
+          }
+
+          // emit done
+          for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send("backend:process-done", { taskId, path: outPath });
+          }
+        } catch (err: any) {
+          const message = err?.message || String(err);
+          for (const win of BrowserWindow.getAllWindows()) {
+            win.webContents.send("backend:process-error", { taskId, error: message });
+          }
+        } finally {
+          processingTasks.delete(taskId);
+        }
+      })();
+
+      return taskId;
     }
   );
 }

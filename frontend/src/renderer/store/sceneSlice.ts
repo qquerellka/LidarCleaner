@@ -36,7 +36,7 @@ export interface SceneState {
 }
 
 const initialState: SceneState = {
-  pointSize: 0.02,
+  pointSize: 0.001,
   colorMode: "vertex",
   fixedColor: "#00ff88",
   showAxes: true,

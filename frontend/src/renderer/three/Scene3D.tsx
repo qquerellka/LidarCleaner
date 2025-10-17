@@ -4,12 +4,24 @@ import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { useSelector, useDispatch } from "react-redux";
+import { Group, Button, ActionIcon } from "@mantine/core";
+import { IconDownload, IconFileTypography } from "@tabler/icons-react";
 import type { RootState } from "../store";
 import {
   clearCameraCommand,
   loadViewPresetsFromStorage,
   upsertViewPreset,
 } from "../store/sceneSlice";
+import {
+  setSelectedIndices,
+  setSelectionBox,
+  setCanUndo,
+} from "../store/editSlice";
+import {
+  getPointsInSelectionBox,
+  updateSelectionColors,
+  deleteSelectedPoints,
+} from "./boxSelection";
 
 function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer | SharedArrayBuffer {
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
@@ -49,6 +61,8 @@ export default function Scene3D() {
     clippingEnabled, clipX, clipY, clipZ,
     viewPresets,
   } = useSelector((s: RootState) => s.scene);
+  
+  const { isEditMode, selectedIndices, selectionBox } = useSelector((s: RootState) => s.edit);
 
   const pointsRef = useRef<THREE.Points | null>(null);
   const axesRef = useRef<THREE.AxesHelper | null>(null);
@@ -60,6 +74,12 @@ export default function Scene3D() {
   const controlsRef = useRef<OrbitControls | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  
+  // Selection box refs
+  const [isSelecting, setIsSelecting] = useState(false);
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const originalGeometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const undoStackRef = useRef<Float32Array[]>([]);
   const mouseNdcRef = useRef(new THREE.Vector2());
   const helpVisibleRef = useRef<boolean>(false);
   const flyModeRef = useRef<boolean>(false);
@@ -68,16 +88,8 @@ export default function Scene3D() {
   const pointSizeScaleRef = useRef<number>(1);
 
   // Manual edit state
-  const [editMode, setEditMode] = useState(false);
-  const [brushRadius, setBrushRadius] = useState(0.05); // world units after normalization
-  const isErasingRef = useRef(false);
-  const pendingDeleteRef = useRef<Set<number>>(new Set());
+  // Manual edit state (removed): keep only filename ref and export helpers
   const lastFileNameRef = useRef<string | null>(null);
-  const [brushScreen, setBrushScreen] = useState<{ x: number; y: number; visible: boolean; pxRadius: number }>(
-    { x: 0, y: 0, visible: false, pxRadius: 12 }
-  );
-  const [applyInstantly, setApplyInstantly] = useState(true);
-  const lastHitRef = useRef<THREE.Vector3 | null>(null);
 
   // BBox
   const bboxRef = useRef<THREE.Box3 | null>(null);
@@ -219,7 +231,8 @@ export default function Scene3D() {
     controls.addEventListener("change", () => {
       if (controls.target.y < 0) {
         controls.target.y = 0;
-        controls.update();
+        // НЕ вызываем controls.update() здесь! Это создает бесконечную рекурсию
+        // controls.update() будет вызван в animate() на следующем кадре
       }
     });
     controlsRef.current = controls;
@@ -454,16 +467,10 @@ export default function Scene3D() {
     const onMouseMove = (e: MouseEvent) => {
       // Track cursor in NDC for raycasting / brush
       if (renderer && camera) {
-        const rect = renderer.domElement.getBoundingClientRect();
-        mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-        if (editMode) updateBrushOverlay(e.clientX - rect.left, e.clientY - rect.top);
-      }
-
-      // While erasing, accumulate points under brush
-      if (isErasingRef.current) {
-        brushCollectAtCursor();
-      }
+          const rect = renderer.domElement.getBoundingClientRect();
+          mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+          mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        }
 
       if (!flyModeRef.current) return;
       const dx = e.movementX || 0;
@@ -478,6 +485,12 @@ export default function Scene3D() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
+      
+      // Ctrl для фиксации камеры
+      if (e.key === "Control") {
+        controls.enabled = false;
+      }
+      
       if (e.key === "T" || e.key === "t") {
         flyModeRef.current = !flyModeRef.current;
         if (flyModeRef.current) renderer.domElement.requestPointerLock?.();
@@ -499,6 +512,11 @@ export default function Scene3D() {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keysRef.current.delete(e.key.toLowerCase());
+      
+      // Отпускание Ctrl - разблокировать камеру
+      if (e.key === "Control") {
+        controls.enabled = true;
+      }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -620,6 +638,198 @@ export default function Scene3D() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath, colorMode, fixedColor, pointSize]);
+
+  // Слушатели событий для экспорта
+  useEffect(() => {
+    const handleExportPLY = () => exportCurrentPLY();
+    const handleExportPLYBinary = () => exportCurrentPLYBinary();
+    const handleExportPCD = () => exportCurrentPCD();
+
+    window.addEventListener("export-ply", handleExportPLY);
+    window.addEventListener("export-ply-binary", handleExportPLYBinary);
+    window.addEventListener("export-pcd", handleExportPCD);
+
+    return () => {
+      window.removeEventListener("export-ply", handleExportPLY);
+      window.removeEventListener("export-ply-binary", handleExportPLYBinary);
+      window.removeEventListener("export-pcd", handleExportPCD);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Box Selection в режиме редактирования
+  useEffect(() => {
+    if (!isEditMode || !rendererRef.current || !cameraRef.current || !controlsRef.current) return;
+
+    const renderer = rendererRef.current;
+    const camera = cameraRef.current;
+    const controls = controlsRef.current;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (!e.shiftKey) return; // Box selection только с Shift
+      
+      // ВАЖНО: предотвращаем все default действия И останавливаем propagation
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      // Отключаем controls ДО начала выделения
+      controls.enabled = false;
+      
+      setIsSelecting(true);
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      selectionStartRef.current = { x, y };
+      dispatch(setSelectionBox({ isActive: true, startX: x, startY: y, endX: x, endY: y }));
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isSelecting || !selectionStartRef.current) return;
+      
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      
+      dispatch(setSelectionBox({
+        isActive: true,
+        startX: selectionStartRef.current.x,
+        startY: selectionStartRef.current.y,
+        endX: x,
+        endY: y,
+      }));
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!isSelecting || !selectionStartRef.current) {
+        // Если не было выделения, но controls были отключены - включаем обратно
+        if (!controls.enabled) {
+          controls.enabled = true;
+        }
+        return;
+      }
+      
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+      
+      const rect = renderer.domElement.getBoundingClientRect();
+      const endX = e.clientX - rect.left;
+      const endY = e.clientY - rect.top;
+      
+      // Выполняем выделение точек
+      const points = pointsRef.current;
+      if (points && points.geometry) {
+        const selected = getPointsInSelectionBox(
+          points.geometry,
+          camera,
+          selectionStartRef.current,
+          { x: endX, y: endY },
+          rect.width,
+          rect.height,
+          points.matrixWorld
+        );
+        
+        dispatch(setSelectedIndices(selected));
+      }
+      
+      // Очищаем состояние и включаем controls
+      setIsSelecting(false);
+      selectionStartRef.current = null;
+      dispatch(setSelectionBox(null));
+      controls.enabled = true;
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Delete" && selectedIndices.size > 0) {
+        window.dispatchEvent(new CustomEvent("edit-delete-selected"));
+      }
+      if (e.key === "Escape") {
+        dispatch(setSelectedIndices([]));
+      }
+    };
+
+    // Используем capture: true чтобы обработчик срабатывал ПЕРЕД OrbitControls
+    renderer.domElement.addEventListener("mousedown", handleMouseDown, { capture: true });
+    renderer.domElement.addEventListener("mousemove", handleMouseMove, { capture: true });
+    renderer.domElement.addEventListener("mouseup", handleMouseUp, { capture: true });
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      renderer.domElement.removeEventListener("mousedown", handleMouseDown, { capture: true });
+      renderer.domElement.removeEventListener("mousemove", handleMouseMove, { capture: true });
+      renderer.domElement.removeEventListener("mouseup", handleMouseUp, { capture: true });
+      window.removeEventListener("keydown", handleKeyDown);
+      controls.enabled = true;
+    };
+  }, [isEditMode, isSelecting, selectedIndices.size, dispatch]);
+
+  // Визуальная подсветка выделенных точек
+  useEffect(() => {
+    const points = pointsRef.current;
+    if (!points || !points.geometry || !isEditMode) return;
+    
+    updateSelectionColors(points.geometry, selectedIndices);
+  }, [selectedIndices, isEditMode]);
+
+  // Обработчики событий редактирования
+  useEffect(() => {
+    const handleDelete = () => {
+      const points = pointsRef.current;
+      if (!points || !points.geometry || selectedIndices.size === 0) return;
+      
+      // Сохраняем в undo stack
+      const positions = points.geometry.attributes.position;
+      undoStackRef.current.push(positions.array.slice() as Float32Array);
+      dispatch(setCanUndo(true));
+      
+      // Удаляем точки
+      const newGeometry = deleteSelectedPoints(points.geometry, selectedIndices);
+      points.geometry.dispose();
+      points.geometry = newGeometry;
+      
+      // Очищаем выделение
+      dispatch(setSelectedIndices([]));
+    };
+
+    const handleUndo = () => {
+      const points = pointsRef.current;
+      if (!points || undoStackRef.current.length === 0) return;
+      
+      const previousPositions = undoStackRef.current.pop();
+      if (!previousPositions) return;
+      
+      // Восстанавливаем геометрию
+      const newGeometry = new THREE.BufferGeometry();
+      newGeometry.setAttribute('position', new THREE.BufferAttribute(previousPositions, 3));
+      
+      // Копируем цвета если есть
+      if (points.geometry.attributes.color) {
+        const colors = points.geometry.attributes.color.array;
+        newGeometry.setAttribute('color', new THREE.BufferAttribute(colors.slice(), 3));
+      }
+      
+      points.geometry.dispose();
+      points.geometry = newGeometry;
+      
+      dispatch(setCanUndo(undoStackRef.current.length > 0));
+      dispatch(setSelectedIndices([]));
+    };
+
+    window.addEventListener("edit-delete-selected", handleDelete);
+    window.addEventListener("edit-undo", handleUndo);
+
+    return () => {
+      window.removeEventListener("edit-delete-selected", handleDelete);
+      window.removeEventListener("edit-undo", handleUndo);
+    };
+  }, [selectedIndices, dispatch]);
 
   // тумблеры видимости гизмосов
   useEffect(() => {
@@ -743,156 +953,7 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
-  // --- Manual erase helpers ---
-  function brushCollectAtCursor() {
-    const scene = sceneRef.current;
-    const camera = cameraRef.current;
-    const raycaster = raycasterRef.current;
-    const points = pointsRef.current as THREE.Points | null;
-    if (!scene || !camera || !raycaster || !points) return;
-
-    raycaster.setFromCamera(mouseNdcRef.current, camera);
-    const intersects = raycaster.intersectObject(points, false);
-    if (!intersects.length) return;
-
-    const hit = intersects[0].point.clone(); // world
-    lastHitRef.current = hit.clone();
-    const localHit = hit.clone();
-    points.worldToLocal(localHit);
-
-    const geom = points.geometry as THREE.BufferGeometry;
-    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
-    const radius = brushRadius;
-    const r2 = radius * radius;
-
-    for (let i = 0; i < posAttr.count; i++) {
-      const dx = posAttr.getX(i) - localHit.x;
-      const dy = posAttr.getY(i) - localHit.y;
-      const dz = posAttr.getZ(i) - localHit.z;
-      if (dx * dx + dy * dy + dz * dz <= r2) {
-        pendingDeleteRef.current.add(i);
-      }
-    }
-
-    if (applyInstantly) {
-      applyDeletion();
-    }
-  }
-
-  function updateBrushOverlay(x: number, y: number) {
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    const points = pointsRef.current as THREE.Points | null;
-    if (!renderer || !camera || !points) {
-      setBrushScreen({ x, y, visible: true, pxRadius: brushScreen.pxRadius });
-      return;
-    }
-
-    // Try to compute pixel radius by projecting a world-offset vector around last hit or target
-    const rect = renderer.domElement.getBoundingClientRect();
-    const center = lastHitRef.current ? lastHitRef.current.clone() : controlsRef.current?.target.clone() || new THREE.Vector3();
-    // build a right vector perpendicular to view
-    const forward = new THREE.Vector3();
-    camera.getWorldDirection(forward);
-    const right = new THREE.Vector3().crossVectors(forward, camera.up).normalize();
-    const p1 = center.clone();
-    const p2 = center.clone().add(right.multiplyScalar(brushRadius));
-    const ndc1 = p1.clone().project(camera);
-    const ndc2 = p2.clone().project(camera);
-    const dx = (ndc2.x - ndc1.x) * (rect.width / 2);
-    const dy = (ndc2.y - ndc1.y) * (-rect.height / 2);
-    const pxRadius = Math.max(4, Math.min(200, Math.hypot(dx, dy)));
-    setBrushScreen({ x, y, visible: true, pxRadius });
-  }
-
-  function applyDeletion() {
-    const points = pointsRef.current as THREE.Points | null;
-    if (!points || pendingDeleteRef.current.size === 0) return;
-
-    const geom = points.geometry as THREE.BufferGeometry;
-    const posAttr = geom.getAttribute("position") as THREE.BufferAttribute;
-    const colAttr = geom.getAttribute("color") as THREE.BufferAttribute | undefined;
-
-    const keepCount = posAttr.count - pendingDeleteRef.current.size;
-    const newPos = new Float32Array(keepCount * 3);
-    const newCol = colAttr ? new Float32Array(keepCount * 3) : undefined;
-
-    let w = 0;
-    for (let i = 0; i < posAttr.count; i++) {
-      if (pendingDeleteRef.current.has(i)) continue;
-      newPos[w * 3 + 0] = posAttr.getX(i);
-      newPos[w * 3 + 1] = posAttr.getY(i);
-      newPos[w * 3 + 2] = posAttr.getZ(i);
-      if (newCol && colAttr) {
-        newCol[w * 3 + 0] = colAttr.getX(i);
-        newCol[w * 3 + 1] = colAttr.getY(i);
-        newCol[w * 3 + 2] = colAttr.getZ(i);
-      }
-      w++;
-    }
-
-    const newGeom = new THREE.BufferGeometry();
-    newGeom.setAttribute("position", new THREE.BufferAttribute(newPos, 3));
-    if (newCol) newGeom.setAttribute("color", new THREE.BufferAttribute(newCol, 3));
-
-    const mat = points.material as THREE.PointsMaterial;
-    const next = new THREE.Points(newGeom, mat);
-    next.position.copy(points.position);
-    next.rotation.copy(points.rotation);
-    next.scale.copy(points.scale);
-
-    const scene = sceneRef.current!;
-    scene.remove(points);
-    pointsRef.current = next;
-    scene.add(next);
-
-    bboxRef.current = new THREE.Box3().setFromObject(next);
-    if (bboxHelperRef.current) {
-      scene.remove(bboxHelperRef.current);
-      bboxHelperRef.current = null;
-    }
-    if (showBBox) {
-      const helper = new THREE.Box3Helper(bboxRef.current, 0x4444ff);
-      scene.add(helper);
-      bboxHelperRef.current = helper;
-    }
-
-    pendingDeleteRef.current.clear();
-  }
-
-  function onPointerDown(e: React.MouseEvent) {
-    if (!editMode || e.button !== 0) return;
-    e.preventDefault();
-    const renderer = rendererRef.current;
-    const camera = cameraRef.current;
-    if (renderer && camera) {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseNdcRef.current.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      setBrushScreen((s) => ({ x: e.clientX - rect.left, y: e.clientY - rect.top, visible: true, pxRadius: s.pxRadius }));
-    }
-    isErasingRef.current = true;
-    // Temporarily disable OrbitControls to prevent camera rotation while erasing
-    if (controlsRef.current) controlsRef.current.enabled = false;
-    brushCollectAtCursor();
-  }
-  function onPointerUp(e: React.MouseEvent) {
-    if (!editMode || e.button !== 0) return;
-    e.preventDefault();
-    isErasingRef.current = false;
-    if (controlsRef.current) controlsRef.current.enabled = true;
-    setBrushScreen((s) => ({ ...s, visible: false }));
-    applyDeletion();
-  }
-  function onPointerLeave() {
-    if (!editMode) return;
-    if (controlsRef.current) controlsRef.current.enabled = true;
-    setBrushScreen((s) => ({ ...s, visible: false }));
-    if (isErasingRef.current) {
-      isErasingRef.current = false;
-      applyDeletion();
-    }
-  }
+  // Manual erase helpers removed.
 
   async function exportCurrentPLY() {
     const pts = pointsRef.current;
@@ -1041,64 +1102,55 @@ export default function Scene3D() {
   }
 
   return (
-    <div
-      style={{ width: "100%", height: "100%", position: "relative", cursor: editMode ? "crosshair" : undefined }}
-      ref={mountRef}
-      onMouseDown={onPointerDown}
-      onMouseUp={onPointerUp}
-      onMouseLeave={onPointerLeave}
-    >
-      {/* Manual edit toolbar */}
-      <div style={{ position: "absolute", top: 10, left: 10, background: "rgba(0,0,0,0.6)", padding: 8, borderRadius: 6, display: "flex", gap: 10, alignItems: "center", zIndex: 2 }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={editMode} onChange={(e) => setEditMode(e.target.checked)} />
-          <span>Erase mode</span>
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, opacity: editMode ? 1 : 0.5 }}>
-          <span>Brush</span>
-          <input
-            type="range"
-            min={0.005}
-            max={0.2}
-            step={0.005}
-            value={brushRadius}
-            onChange={(e) => setBrushRadius(parseFloat(e.target.value))}
-            disabled={!editMode}
-          />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <input type="checkbox" checked={applyInstantly} onChange={(e) => setApplyInstantly(e.target.checked)} />
-          <span>Apply instantly</span>
-        </label>
-        <button onClick={exportCurrentPLY} title="Export current points as PLY (ASCII)">Export PLY</button>
-        <button onClick={exportCurrentPLYBinary} title="Export current points as PLY (binary little-endian)">Export PLY (bin)</button>
-        <button onClick={exportCurrentPCD} title="Export current points as PCD (ASCII)">Export PCD</button>
-      </div>
-      {/* Brush cursor overlay */}
-      {editMode && brushScreen.visible && (
+    <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
+      {/* Selection Box Overlay */}
+      {selectionBox && selectionBox.isActive && (
         <div
           style={{
             position: "absolute",
-            left: Math.max(0, brushScreen.x - 9999),
-            top: Math.max(0, brushScreen.y - 9999),
+            left: Math.min(selectionBox.startX, selectionBox.endX),
+            top: Math.min(selectionBox.startY, selectionBox.endY),
+            width: Math.abs(selectionBox.endX - selectionBox.startX),
+            height: Math.abs(selectionBox.endY - selectionBox.startY),
+            border: "2px dashed #22d3ee",
+            background: "rgba(34, 211, 238, 0.1)",
             pointerEvents: "none",
-            zIndex: 1,
+            zIndex: 10,
           }}
-        >
-          {/* Approximate brush radius in pixels by projecting radius at current distance; for simplicity use fixed size as hint */}
-          <div
-            style={{
-              position: "absolute",
-              transform: `translate(${brushScreen.x - brushScreen.pxRadius}px, ${brushScreen.y - brushScreen.pxRadius}px)`,
-              width: brushScreen.pxRadius * 2,
-              height: brushScreen.pxRadius * 2,
-              borderRadius: "50%",
-              border: "1px solid rgba(255,255,255,0.7)",
-              background: "rgba(255,255,255,0.1)",
-            }}
-          />
-        </div>
+        />
       )}
+      
+      <div style={{ position: "absolute", top: 10, left: 10, zIndex: 2 }}>
+        <Group gap="xs">
+          <Button
+            onClick={exportCurrentPLY}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PLY (ASCII)"
+          >
+            PLY
+          </Button>
+          <Button
+            onClick={exportCurrentPLYBinary}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PLY (бинарный)"
+          >
+            PLY (bin)
+          </Button>
+          <Button
+            onClick={exportCurrentPCD}
+            size="xs"
+            variant="filled"
+            leftSection={<IconDownload size={14} />}
+            title="Экспорт в PCD (ASCII)"
+          >
+            PCD
+          </Button>
+        </Group>
+      </div>
       <div
         id="pcd-help-overlay"
         style={{
@@ -1118,7 +1170,7 @@ export default function Scene3D() {
           maxWidth: 380,
         }}
       >
-{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
+{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nCtrl (hold) — Lock camera\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
       </div>
     </div>
   );
