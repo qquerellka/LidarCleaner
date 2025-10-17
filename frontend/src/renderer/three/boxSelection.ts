@@ -72,8 +72,10 @@ export function updateSelectionColors(
   geometry: THREE.BufferGeometry,
   selectedIndices: number[],  // Изменено с Set<number> на number[]
   hiddenIndices: number[] = [],
+  previewIndices: number[] = [],  // Hover preview для brush mode
   selectionColor: THREE.Color = new THREE.Color(0x00ffff),
-  hiddenColor: THREE.Color = new THREE.Color(0x111111)  // Очень темный для скрытых
+  hiddenColor: THREE.Color = new THREE.Color(0x111111),  // Очень темный для скрытых
+  previewColor: THREE.Color = new THREE.Color(0xffff00)  // Желтый для preview
 ): void {
   const colors = geometry.attributes.color;
   if (!colors) return;
@@ -90,6 +92,7 @@ export function updateSelectionColors(
   // Создаем Set для быстрой проверки (O(1) вместо O(n))
   const selectedSet = new Set(selectedIndices);
   const hiddenSet = new Set(hiddenIndices);
+  const previewSet = new Set(previewIndices);
   
   for (let i = 0; i < colors.count; i++) {
     if (hiddenSet.has(i)) {
@@ -98,6 +101,9 @@ export function updateSelectionColors(
     } else if (selectedSet.has(i)) {
       // Применяем цвет выделения
       colors.setXYZ(i, selectionColor.r, selectionColor.g, selectionColor.b);
+    } else if (previewSet.has(i)) {
+      // Preview hover - желтый цвет
+      colors.setXYZ(i, previewColor.r, previewColor.g, previewColor.b);
     } else {
       // Восстанавливаем оригинальный цвет
       const idx = i * 3;

@@ -29,7 +29,7 @@ const theme = createTheme({
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Provider store={store}>
-      <MantineProvider theme={theme} defaultColorScheme="dark">
+      <MantineProvider theme={theme} defaultColorScheme="auto">
         <Notifications position="top-right" zIndex={1000} />
         <App />
       </MantineProvider>

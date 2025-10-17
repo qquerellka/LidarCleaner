@@ -8,15 +8,22 @@ import { Group, Button, ActionIcon } from "@mantine/core";
 import { IconDownload, IconFileTypography } from "@tabler/icons-react";
 import type { RootState } from "../store";
 import { SelectionContextMenu } from "../components/SelectionContextMenu";
+import QuickActionsToolbar from "../components/QuickActionsToolbar";
+import HotkeysModal from "../components/HotkeysModal";
+import Minimap from "../components/Minimap";
 import {
   clearCameraCommand,
   loadViewPresetsFromStorage,
   upsertViewPreset,
+  setMeasurementMode,
+  addMeasurementPoint,
+  clearMeasurementPoints,
 } from "../store/sceneSlice";
 import {
   setSelectedIndices,
   addToSelection,
   removeFromSelection,
+  clearSelection,
   setSelectionBox,
   setCanUndo,
   setHiddenIndices,
@@ -72,6 +79,8 @@ export default function Scene3D() {
     showBBox,
     clippingEnabled, clipX, clipY, clipZ,
     viewPresets,
+    measurementMode,
+    measurementPoints,
   } = useSelector((s: RootState) => s.scene);
   
   const { isEditMode, selectedIndices, hiddenIndices, selectionBox, brushMode, brushRadius } = useSelector((s: RootState) => s.edit);
@@ -110,9 +119,16 @@ export default function Scene3D() {
   const bboxRef = useRef<THREE.Box3 | null>(null);
   const bboxHelperRef = useRef<THREE.Box3Helper | null>(null);
   const brushCursorRef = useRef<THREE.Mesh | null>(null);
+  const brushPreviewIndicesRef = useRef<number[]>([]);
   const [isBrushing, setIsBrushing] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
+  const [hotkeysModalOpen, setHotkeysModalOpen] = useState(false);
+  const [minimapVisible, setMinimapVisible] = useState(true);
+  
+  // Measurement tool refs
+  const measurementLineRef = useRef<THREE.Line | null>(null);
+  const measurementSpheres = useRef<THREE.Mesh[]>([]);
 
   // мини-компас
   const axesSceneRef = useRef<THREE.Scene | null>(null);
@@ -376,7 +392,13 @@ export default function Scene3D() {
         undoStackRef.current = [];
         dispatch(setCanUndo(false));
         
+        // Start loading indicator
+        dispatch({ type: 'ui/setLoading', payload: true });
+        dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 10, message: 'Чтение файла...' } });
+        
         const data = await window.api.readFile(path);
+        
+        dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 40, message: 'Парсинг данных...' } });
         const ab = toTightArrayBuffer(data) as ArrayBuffer;
 
   const ext = path.split(".").pop()?.toLowerCase();
@@ -422,6 +444,8 @@ export default function Scene3D() {
 
         points.material = material;
 
+        dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 70, message: 'Применение материалов...' } });
+
         // очистка предыдущих
         if (pointsRef.current) {
           scene.remove(pointsRef.current);
@@ -435,6 +459,8 @@ export default function Scene3D() {
 
         pointsRef.current = points;
         scene.add(points);
+        
+        dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 85, message: 'Настройка камеры...' } });
         
         // Обновляем счетчик точек
         dispatch(setPointCount(points.geometry.attributes.position.count));
@@ -482,8 +508,16 @@ export default function Scene3D() {
 
         // применить clipping сразу
         applyClipping();
+        
+        dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 100, message: 'Готово!' } });
+        
+        // Hide loading overlay after a short delay
+        setTimeout(() => {
+          dispatch({ type: 'ui/setLoading', payload: false });
+        }, 300);
       } catch (e) {
         console.error("Failed to load PCD:", e);
+        dispatch({ type: 'ui/setLoading', payload: false });
       }
     };
 
@@ -521,9 +555,8 @@ export default function Scene3D() {
         autoRotateRef.current = !autoRotateRef.current;
       }
       if (e.key === "?" || (e.shiftKey && e.key === "/")) {
-        helpVisibleRef.current = !helpVisibleRef.current;
-        const el = document.getElementById("pcd-help-overlay");
-        if (el) el.style.display = helpVisibleRef.current ? "block" : "none";
+        e.preventDefault();
+        setHotkeysModalOpen(true);
       }
       if (e.key === "H" || e.key === "h") {
         camera.position.set(0, 0, 5);
@@ -583,7 +616,6 @@ export default function Scene3D() {
 
     // single click: set target without flying (Ctrl+Click)
     const onSingleClick = (e: MouseEvent) => {
-      if (!e.ctrlKey) return;
       if (!renderer.domElement || !pointsRef.current || !cameraRef.current || !controlsRef.current || !raycasterRef.current) return;
       const rect = renderer.domElement.getBoundingClientRect();
       mouseNdcRef.current.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -593,8 +625,18 @@ export default function Scene3D() {
       const intersects = raycaster.intersectObject(pointsRef.current, false);
       if (intersects.length === 0) return;
       const hit = intersects[0].point.clone();
-      controls.target.copy(hit);
-      controls.update();
+      
+      // Measurement mode: add point
+      if (measurementMode && !e.ctrlKey) {
+        dispatch(addMeasurementPoint({ x: hit.x, y: hit.y, z: hit.z }));
+        return;
+      }
+      
+      // Ctrl+Click: set target
+      if (e.ctrlKey) {
+        controls.target.copy(hit);
+        controls.update();
+      }
     };
     renderer.domElement.addEventListener("click", onSingleClick);
 
@@ -959,6 +1001,36 @@ export default function Scene3D() {
         } else {
           dispatch(addToSelection(selected));
         }
+      } else if (points.geometry && cursorPos) {
+        // Hover preview: показываем какие точки попадут в выделение
+        const previewIndices = getPointsInBrushRadius(
+          points.geometry,
+          camera,
+          x,
+          y,
+          rect.width,
+          rect.height,
+          brushRadius,
+          points.matrixWorld,
+          raycaster
+        );
+        
+        // Обновляем preview только если изменился набор точек
+        const prevPreview = brushPreviewIndicesRef.current;
+        const changed = previewIndices.length !== prevPreview.length || 
+                       previewIndices.some((idx, i) => idx !== prevPreview[i]);
+        
+        if (changed) {
+          brushPreviewIndicesRef.current = previewIndices;
+          
+          // Применяем preview подсветку
+          updateSelectionColors(
+            points.geometry,
+            selectedIndices,
+            hiddenIndices,
+            previewIndices
+          );
+        }
       }
     };
 
@@ -1008,17 +1080,32 @@ export default function Scene3D() {
       }
     };
 
+    const handleBrushMouseLeave = () => {
+      // Очищаем preview при уходе курсора
+      const points = pointsRef.current;
+      const cursor = brushCursorRef.current;
+      
+      if (cursor) cursor.visible = false;
+      
+      if (points && points.geometry && brushPreviewIndicesRef.current.length > 0) {
+        brushPreviewIndicesRef.current = [];
+        updateSelectionColors(points.geometry, selectedIndices, hiddenIndices, []);
+      }
+    };
+
     renderer.domElement.addEventListener('mousemove', handleBrushMouseMove);
     renderer.domElement.addEventListener('mousedown', handleBrushMouseDown, { capture: true });
     renderer.domElement.addEventListener('mouseup', handleBrushMouseUp);
+    renderer.domElement.addEventListener('mouseleave', handleBrushMouseLeave);
 
     return () => {
       renderer.domElement.removeEventListener('mousemove', handleBrushMouseMove);
       renderer.domElement.removeEventListener('mousedown', handleBrushMouseDown, { capture: true });
       renderer.domElement.removeEventListener('mouseup', handleBrushMouseUp);
+      renderer.domElement.removeEventListener('mouseleave', handleBrushMouseLeave);
       if (controls) controls.enabled = true;
     };
-  }, [brushMode, isEditMode, isBrushing, brushRadius, dispatch]);
+  }, [brushMode, isEditMode, isBrushing, brushRadius, dispatch, selectedIndices, hiddenIndices]);
 
   // Клавиша B для toggle brush mode + [ ] для размера кисти
   useEffect(() => {
@@ -1128,7 +1215,9 @@ export default function Scene3D() {
     const points = pointsRef.current;
     if (!points || !points.geometry || !isEditMode) return;
     
-    updateSelectionColors(points.geometry, selectedIndices, hiddenIndices);
+    // Очищаем preview при обновлении выделения
+    brushPreviewIndicesRef.current = [];
+    updateSelectionColors(points.geometry, selectedIndices, hiddenIndices, []);
   }, [selectedIndices, hiddenIndices, isEditMode]);
 
   // Вычисление статистики выделения
@@ -1397,6 +1486,79 @@ export default function Scene3D() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
+  // Measurement tool
+  useEffect(() => {
+    if (!measurementMode) return;
+    
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'm' || e.key === 'M') {
+        if (!e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) {
+          dispatch(setMeasurementMode(false));
+        }
+      }
+      if (e.key === 'Escape') {
+        dispatch(clearMeasurementPoints());
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [measurementMode, dispatch]);
+
+  // Visualize measurement
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Clear old visualizations
+    if (measurementLineRef.current) {
+      scene.remove(measurementLineRef.current);
+      measurementLineRef.current.geometry.dispose();
+      (measurementLineRef.current.material as THREE.Material).dispose();
+      measurementLineRef.current = null;
+    }
+    measurementSpheres.current.forEach(sphere => {
+      scene.remove(sphere);
+      sphere.geometry.dispose();
+      (sphere.material as THREE.Material).dispose();
+    });
+    measurementSpheres.current = [];
+
+    if (!measurementMode || measurementPoints.length === 0) return;
+
+    // Create spheres for points
+    measurementPoints.forEach(point => {
+      const geometry = new THREE.SphereGeometry(0.02, 16, 16);
+      const material = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+      const sphere = new THREE.Mesh(geometry, material);
+      sphere.position.set(point.x, point.y, point.z);
+      scene.add(sphere);
+      measurementSpheres.current.push(sphere);
+    });
+
+    // Create line between points
+    if (measurementPoints.length === 2) {
+      const points = [
+        new THREE.Vector3(measurementPoints[0].x, measurementPoints[0].y, measurementPoints[0].z),
+        new THREE.Vector3(measurementPoints[1].x, measurementPoints[1].y, measurementPoints[1].z),
+      ];
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      const material = new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 2 });
+      const line = new THREE.Line(geometry, material);
+      scene.add(line);
+      measurementLineRef.current = line;
+    }
+
+    return () => {
+      if (measurementLineRef.current && scene) {
+        scene.remove(measurementLineRef.current);
+      }
+      measurementSpheres.current.forEach(sphere => {
+        if (scene) scene.remove(sphere);
+      });
+    };
+  }, [measurementMode, measurementPoints]);
+
   // Manual erase helpers removed.
 
   async function exportCurrentPLY() {
@@ -1640,7 +1802,66 @@ export default function Scene3D() {
 {`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
       </div>
 
+      {/* Measurement display */}
+      {measurementMode && measurementPoints.length === 2 && (
+        <div
+          style={{
+            position: "absolute",
+            top: 70,
+            right: 10,
+            padding: "12px 16px",
+            background: "rgba(255, 0, 0, 0.9)",
+            color: "#fff",
+            fontSize: 16,
+            fontWeight: 600,
+            borderRadius: 8,
+            pointerEvents: "none",
+            zIndex: 100,
+            boxShadow: "0 4px 12px rgba(0,0,0,0.5)",
+          }}
+        >
+          📏 Расстояние: {
+            Math.sqrt(
+              Math.pow(measurementPoints[1].x - measurementPoints[0].x, 2) +
+              Math.pow(measurementPoints[1].y - measurementPoints[0].y, 2) +
+              Math.pow(measurementPoints[1].z - measurementPoints[0].z, 2)
+            ).toFixed(3)
+          } м
+        </div>
+      )}
+
+      {measurementMode && measurementPoints.length < 2 && (
+        <div
+          style={{
+            position: "absolute",
+            top: 70,
+            right: 10,
+            padding: "10px 14px",
+            background: "rgba(255, 100, 0, 0.9)",
+            color: "#fff",
+            fontSize: 13,
+            fontWeight: 500,
+            borderRadius: 6,
+            pointerEvents: "none",
+            zIndex: 100,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.4)",
+          }}
+        >
+          📍 {measurementPoints.length === 0 ? "Кликните первую точку" : "Кликните вторую точку"}
+        </div>
+      )}
+
       {/* Контекстное меню для выделения */}
+      <QuickActionsToolbar
+        visible={isEditMode && selectedIndices.length > 0}
+        selectedCount={selectedIndices.length}
+        onDelete={handleContextMenuDelete}
+        onHide={handleContextMenuHide}
+        onIsolate={handleContextMenuIsolate}
+        onInvert={handleContextMenuInvert}
+        onClear={() => dispatch(clearSelection())}
+      />
+      
       <SelectionContextMenu
         opened={contextMenuOpen}
         position={contextMenuPosition}
@@ -1651,6 +1872,25 @@ export default function Scene3D() {
         onInvert={handleContextMenuInvert}
         onShowAll={handleContextMenuShowAll}
         hasHidden={hiddenIndices.length > 0}
+      />
+      
+      <HotkeysModal
+        opened={hotkeysModalOpen}
+        onClose={() => setHotkeysModalOpen(false)}
+      />
+      
+      <Minimap
+        visible={minimapVisible && !!pointsRef.current}
+        mainCamera={cameraRef.current}
+        pointCloud={pointsRef.current}
+        onCameraMove={(x, z) => {
+          if (cameraRef.current && controlsRef.current) {
+            cameraRef.current.position.x = x;
+            cameraRef.current.position.z = z;
+            controlsRef.current.target.set(x, 0, z);
+            controlsRef.current.update();
+          }
+        }}
       />
     </div>
   );
