@@ -15,6 +15,12 @@ export interface AxisClip {
   max: number; // 0..1
 }
 
+export interface MeasurementPoint {
+  x: number;
+  y: number;
+  z: number;
+}
+
 export interface SceneState {
   pointSize: number;
   colorMode: ColorMode;
@@ -33,6 +39,10 @@ export interface SceneState {
   clipZ: AxisClip;
 
   viewPresets: ViewPreset[];
+  
+  // Measurement tool
+  measurementMode: boolean;
+  measurementPoints: MeasurementPoint[];
 }
 
 const initialState: SceneState = {
@@ -52,6 +62,9 @@ const initialState: SceneState = {
   clipZ: { enabled: false, min: 0, max: 1 },
 
   viewPresets: [],
+  
+  measurementMode: false,
+  measurementPoints: [],
 };
 
 const sceneSlice = createSlice({
@@ -104,15 +117,30 @@ const sceneSlice = createSlice({
       const idx = state.viewPresets.findIndex((p) => p.id === action.payload.id);
       if (idx >= 0) state.viewPresets[idx] = action.payload;
       else state.viewPresets.push(action.payload);
-      try {
-        localStorage.setItem("pcd_view_presets", JSON.stringify(state.viewPresets));
-      } catch {}
+      // localStorage теперь обрабатывается в middleware
     },
     loadViewPresetsFromStorage(state) {
       try {
         const raw = localStorage.getItem("pcd_view_presets");
         if (raw) state.viewPresets = JSON.parse(raw);
       } catch {}
+    },
+    
+    setMeasurementMode(state, action: PayloadAction<boolean>) {
+      state.measurementMode = action.payload;
+      if (!action.payload) {
+        state.measurementPoints = [];
+      }
+    },
+    addMeasurementPoint(state, action: PayloadAction<MeasurementPoint>) {
+      if (state.measurementPoints.length >= 2) {
+        state.measurementPoints = [action.payload];
+      } else {
+        state.measurementPoints.push(action.payload);
+      }
+    },
+    clearMeasurementPoints(state) {
+      state.measurementPoints = [];
     },
   },
 });
@@ -135,6 +163,10 @@ export const {
 
   upsertViewPreset,
   loadViewPresetsFromStorage,
+  
+  setMeasurementMode,
+  addMeasurementPoint,
+  clearMeasurementPoints,
 } = sceneSlice.actions;
 
 export default sceneSlice.reducer;

@@ -1,3 +1,103 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+dist-electron/
+build/
+out/
+bin/
+
+# Electron
+*.AppImage
+*.dmg
+*.exe
+*.deb
+*.rpm
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# OS
 .DS_Store
-.idea
-backend/.env
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.cursor/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Testing
+coverage/
+.nyc_output/
+*.coverprofile
+
+# Database
+*.db
+*.sqlite
+
+# Docker volumes
+postgres-data/
+minio-data/
+rabbitmq-data/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Go
+*.exe~
+*.test
+*.out
+go.work
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# Assets (large files)
+*.pcd
+*.ply
+*.las
+*.laz
+!test_data/*.pcd
+!test_data/*.ply
+
+# Documentation builds
+docs/_build/
+site/
+
+# Package manager
+package-lock.json.backup
+yarn.lock.backup
+
+# Misc
+.cache/
+.parcel-cache/
+.turbo/
+*.tgz

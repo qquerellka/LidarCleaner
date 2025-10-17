@@ -13,7 +13,9 @@ import {
   Card,
   Badge,
   Kbd,
+  Switch,
 } from "@mantine/core";
+import { IconRuler } from "@tabler/icons-react";
 import type { RootState } from "../../store";
 import {
   setColorMode,
@@ -23,6 +25,7 @@ import {
   setShowGrid,
   triggerCameraCommand,
   setShowBBox,
+  setMeasurementMode,
 } from "../../store/sceneSlice";
 
 export default function SceneControls() {
@@ -30,7 +33,7 @@ export default function SceneControls() {
   const {
     colorMode, fixedColor,
     showAxes, showLight, showGrid,
-    showBBox,
+    showBBox, measurementMode,
   } = useSelector((s: RootState) => s.scene);
 
   return (
@@ -108,6 +111,26 @@ export default function SceneControls() {
         <Text size="xs" c="dimmed" mt="xs">
           Пресеты: <Kbd>Alt+1..5</Kbd> загрузить, <Kbd>Ctrl+Alt+1..5</Kbd> сохранить
         </Text>
+      </Paper>
+
+      {/* Measurement Tool */}
+      <Paper p="md" withBorder>
+        <Group justify="space-between" align="center">
+          <Group gap="xs">
+            <IconRuler size={20} />
+            <Text size="sm" fw={500}>Измерение расстояний</Text>
+          </Group>
+          <Switch
+            checked={measurementMode}
+            onChange={(e) => dispatch(setMeasurementMode(e.currentTarget.checked))}
+            size="sm"
+          />
+        </Group>
+        {measurementMode && (
+          <Text size="xs" c="dimmed" mt="xs">
+            Кликните на две точки чтобы измерить расстояние. Нажмите <Kbd>M</Kbd> чтобы выйти.
+          </Text>
+        )}
       </Paper>
 
       {/* Legend */}
