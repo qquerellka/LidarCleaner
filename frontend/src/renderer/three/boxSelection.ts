@@ -51,6 +51,7 @@ export function getPointsInSelectionBox(
   const selectedIndices: number[] = [];
   const point = new THREE.Vector3();
   
+  // Проверяем ВСЕ точки - для корректного выделения
   for (let i = 0; i < positions.count; i++) {
     point.fromBufferAttribute(positions, i);
     // Применяем матрицу трансформации объекта для получения мировых координат
@@ -65,12 +66,14 @@ export function getPointsInSelectionBox(
 }
 
 /**
- * Обновляет цвета выделенных точек
+ * Обновляет цвета выделенных и скрытых точек
  */
 export function updateSelectionColors(
   geometry: THREE.BufferGeometry,
-  selectedIndices: Set<number>,
-  selectionColor: THREE.Color = new THREE.Color(0x00ffff)
+  selectedIndices: number[],  // Изменено с Set<number> на number[]
+  hiddenIndices: number[] = [],
+  selectionColor: THREE.Color = new THREE.Color(0x00ffff),
+  hiddenColor: THREE.Color = new THREE.Color(0x111111)  // Очень темный для скрытых
 ): void {
   const colors = geometry.attributes.color;
   if (!colors) return;
@@ -84,8 +87,15 @@ export function updateSelectionColors(
   
   const saved = geometry.userData.originalColors as Float32Array;
   
+  // Создаем Set для быстрой проверки (O(1) вместо O(n))
+  const selectedSet = new Set(selectedIndices);
+  const hiddenSet = new Set(hiddenIndices);
+  
   for (let i = 0; i < colors.count; i++) {
-    if (selectedIndices.has(i)) {
+    if (hiddenSet.has(i)) {
+      // Скрытые точки - делаем очень темными
+      colors.setXYZ(i, hiddenColor.r, hiddenColor.g, hiddenColor.b);
+    } else if (selectedSet.has(i)) {
       // Применяем цвет выделения
       colors.setXYZ(i, selectionColor.r, selectionColor.g, selectionColor.b);
     } else {
@@ -103,25 +113,28 @@ export function updateSelectionColors(
  */
 export function deleteSelectedPoints(
   geometry: THREE.BufferGeometry,
-  selectedIndices: Set<number>
+  selectedIndices: number[]  // Изменено с Set<number> на number[]
 ): THREE.BufferGeometry {
-  if (selectedIndices.size === 0) return geometry;
+  if (selectedIndices.length === 0) return geometry;
   
   const positions = geometry.attributes.position;
   const colors = geometry.attributes.color;
   const normals = geometry.attributes.normal;
   
   const totalCount = positions.count;
-  const remainingCount = totalCount - selectedIndices.size;
+  const remainingCount = totalCount - selectedIndices.length;
   
   const newPositions = new Float32Array(remainingCount * 3);
   const newColors = colors ? new Float32Array(remainingCount * 3) : null;
   const newNormals = normals ? new Float32Array(remainingCount * 3) : null;
   
+  // Создаем Set для быстрой проверки (O(1) вместо O(n))
+  const selectedSet = new Set(selectedIndices);
+  
   let writeIdx = 0;
   
   for (let i = 0; i < totalCount; i++) {
-    if (!selectedIndices.has(i)) {
+    if (!selectedSet.has(i)) {
       // Копируем точку
       newPositions[writeIdx * 3] = positions.getX(i);
       newPositions[writeIdx * 3 + 1] = positions.getY(i);

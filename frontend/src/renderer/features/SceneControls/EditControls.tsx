@@ -1,18 +1,22 @@
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { Button, Paper, Stack, Text, Switch, Group, Badge } from "@mantine/core";
-import { IconEdit, IconTrash, IconEyeOff, IconFocus2, IconArrowBack } from "@tabler/icons-react";
+import { IconEdit, IconTrash, IconEyeOff, IconFocus2, IconArrowBack, IconEye } from "@tabler/icons-react";
 import type { RootState } from "../../store";
 import { setEditMode, clearSelection } from "../../store/editSlice";
 
 export default function EditControls() {
   const dispatch = useDispatch();
-  const { isEditMode, selectedIndices, canUndo } = useSelector((s: RootState) => s.edit);
-  const filePath = useSelector((s: RootState) => s.ui.filePath);
+  const { isEditMode, selectedIndices, hiddenIndices, canUndo } = useSelector((s: RootState) => s.edit);
+  const { filePath, pointCount } = useSelector((s: RootState) => s.ui);
 
-  const selectedCount = selectedIndices.size;
+  const selectedCount = selectedIndices.length;
+  const hiddenCount = hiddenIndices.length;
   const hasSelection = selectedCount > 0;
+  const hasHidden = hiddenCount > 0;
   const hasFile = !!filePath;
+  
+  const formatNumber = (num: number) => num.toLocaleString('ru-RU');
 
   const toggleEditMode = (checked: boolean) => {
     dispatch(setEditMode(checked));
@@ -38,6 +42,10 @@ export default function EditControls() {
     dispatch(clearSelection());
   };
 
+  const handleShowAll = () => {
+    window.dispatchEvent(new CustomEvent("edit-show-all"));
+  };
+
   return (
     <Paper p="md" withBorder>
       <Stack gap="sm">
@@ -60,18 +68,43 @@ export default function EditControls() {
 
         {isEditMode && hasFile && (
           <>
-            <Badge
-              variant="light"
-              size="lg"
-              fullWidth
-              color={hasSelection ? "cyan" : "gray"}
-            >
-              Выбрано: {selectedCount} {selectedCount === 1 ? "точка" : selectedCount < 5 ? "точки" : "точек"}
-            </Badge>
+            <Stack gap="xs">
+              <Badge
+                variant="light"
+                size="sm"
+                fullWidth
+                color="blue"
+              >
+                Всего точек: {formatNumber(pointCount)}
+              </Badge>
+              <Badge
+                variant="light"
+                size="lg"
+                fullWidth
+                color={hasSelection ? "cyan" : "gray"}
+              >
+                Выбрано: {formatNumber(selectedCount)} {selectedCount === 1 ? "точка" : selectedCount < 5 ? "точки" : "точек"}
+              </Badge>
+              {hasHidden && (
+                <Badge
+                  variant="light"
+                  size="sm"
+                  fullWidth
+                  color="orange"
+                >
+                  Скрыто: {formatNumber(hiddenCount)} {hiddenCount === 1 ? "точка" : hiddenCount < 5 ? "точки" : "точек"}
+                </Badge>
+              )}
+            </Stack>
 
-            <Text size="xs" c="dimmed">
-              💡 Зажмите Shift + перетащите мышь для выделения области
-            </Text>
+            <Stack gap={4}>
+              <Text size="xs" c="dimmed">
+                💡 Shift + перетащите мышь для выделения области
+              </Text>
+              <Text size="xs" c="dimmed">
+                🔒 Ctrl (удерживать) для блокировки камеры
+              </Text>
+            </Stack>
 
             <Stack gap="xs">
               <Button
@@ -118,6 +151,19 @@ export default function EditControls() {
                 </Button>
               )}
             </Stack>
+
+            {hasHidden && (
+              <Button
+                onClick={handleShowAll}
+                size="sm"
+                variant="light"
+                color="green"
+                leftSection={<IconEye size={16} />}
+                fullWidth
+              >
+                Показать всё
+              </Button>
+            )}
 
             <Text size="xs" fw={500} mt="xs">История</Text>
             <Button

@@ -2,6 +2,7 @@ import { configureStore } from "@reduxjs/toolkit";
 import uiReducer from "./uiSlice";
 import sceneReducer from "./sceneSlice";
 import editReducer from "./editSlice";
+import { localStorageMiddleware } from "./middleware/localStorageMiddleware";
 
 export const store = configureStore({
   reducer: {
@@ -10,13 +11,7 @@ export const store = configureStore({
     edit: editReducer,
   },
   middleware: (getDefaultMiddleware) =>
-    getDefaultMiddleware({
-      serializableCheck: {
-        // Игнорируем Set в editSlice
-        ignoredActions: ['edit/setSelectedIndices', 'edit/addToSelection'],
-        ignoredPaths: ['edit.selectedIndices'],
-      },
-    }),
+    getDefaultMiddleware().concat(localStorageMiddleware),
 });
 
 export type RootState = ReturnType<typeof store.getState>;

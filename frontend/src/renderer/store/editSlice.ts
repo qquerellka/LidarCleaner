@@ -2,7 +2,8 @@ import { createSlice, PayloadAction } from "@reduxjs/toolkit";
 
 export interface EditState {
   isEditMode: boolean;
-  selectedIndices: Set<number>;
+  selectedIndices: number[];  // Изменено с Set<number> на number[]
+  hiddenIndices: number[];    // Скрытые точки
   selectionBox: {
     isActive: boolean;
     startX: number;
@@ -15,7 +16,8 @@ export interface EditState {
 
 const initialState: EditState = {
   isEditMode: false,
-  selectedIndices: new Set(),
+  selectedIndices: [],  // Изменено с new Set() на []
+  hiddenIndices: [],
   selectionBox: null,
   canUndo: false,
 };
@@ -27,22 +29,25 @@ const editSlice = createSlice({
     setEditMode(state, action: PayloadAction<boolean>) {
       state.isEditMode = action.payload;
       if (!action.payload) {
-        // При выходе из режима редактирования очищаем выделение
-        state.selectedIndices = new Set();
+        // При выходе из режима редактирования очищаем выделение и скрытые точки
+        state.selectedIndices = [];
+        state.hiddenIndices = [];
         state.selectionBox = null;
       }
     },
     
     setSelectedIndices(state, action: PayloadAction<number[]>) {
-      state.selectedIndices = new Set(action.payload);
+      state.selectedIndices = action.payload;
     },
     
     addToSelection(state, action: PayloadAction<number[]>) {
-      action.payload.forEach(idx => state.selectedIndices.add(idx));
+      // Добавляем только уникальные индексы
+      const uniqueNew = action.payload.filter(idx => !state.selectedIndices.includes(idx));
+      state.selectedIndices = [...state.selectedIndices, ...uniqueNew];
     },
     
     clearSelection(state) {
-      state.selectedIndices = new Set();
+      state.selectedIndices = [];
     },
     
     setSelectionBox(state, action: PayloadAction<EditState["selectionBox"]>) {
@@ -51,6 +56,14 @@ const editSlice = createSlice({
     
     setCanUndo(state, action: PayloadAction<boolean>) {
       state.canUndo = action.payload;
+    },
+    
+    setHiddenIndices(state, action: PayloadAction<number[]>) {
+      state.hiddenIndices = action.payload;
+    },
+    
+    clearHidden(state) {
+      state.hiddenIndices = [];
     },
   },
 });
@@ -62,6 +75,8 @@ export const {
   clearSelection,
   setSelectionBox,
   setCanUndo,
+  setHiddenIndices,
+  clearHidden,
 } = editSlice.actions;
 
 export default editSlice.reducer;

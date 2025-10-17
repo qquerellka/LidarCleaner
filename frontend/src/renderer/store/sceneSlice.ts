@@ -104,9 +104,7 @@ const sceneSlice = createSlice({
       const idx = state.viewPresets.findIndex((p) => p.id === action.payload.id);
       if (idx >= 0) state.viewPresets[idx] = action.payload;
       else state.viewPresets.push(action.payload);
-      try {
-        localStorage.setItem("pcd_view_presets", JSON.stringify(state.viewPresets));
-      } catch {}
+      // localStorage теперь обрабатывается в middleware
     },
     loadViewPresetsFromStorage(state) {
       try {

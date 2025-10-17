@@ -16,7 +16,10 @@ import {
   setSelectedIndices,
   setSelectionBox,
   setCanUndo,
+  setHiddenIndices,
+  clearHidden,
 } from "../store/editSlice";
+import { setPointCount } from "../store/uiSlice";
 import {
   getPointsInSelectionBox,
   updateSelectionColors,
@@ -62,7 +65,7 @@ export default function Scene3D() {
     viewPresets,
   } = useSelector((s: RootState) => s.scene);
   
-  const { isEditMode, selectedIndices, selectionBox } = useSelector((s: RootState) => s.edit);
+  const { isEditMode, selectedIndices, hiddenIndices, selectionBox } = useSelector((s: RootState) => s.edit);
 
   const pointsRef = useRef<THREE.Points | null>(null);
   const axesRef = useRef<THREE.AxesHelper | null>(null);
@@ -78,8 +81,10 @@ export default function Scene3D() {
   // Selection box refs
   const [isSelecting, setIsSelecting] = useState(false);
   const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const savedCameraStateRef = useRef<{ position: THREE.Vector3; target: THREE.Vector3 } | null>(null);
   const originalGeometryRef = useRef<THREE.BufferGeometry | null>(null);
   const undoStackRef = useRef<Float32Array[]>([]);
+  const MAX_UNDO_STACK_SIZE = 20; // Максимум 20 операций в истории
   const mouseNdcRef = useRef(new THREE.Vector2());
   const helpVisibleRef = useRef<boolean>(false);
   const flyModeRef = useRef<boolean>(false);
@@ -190,8 +195,8 @@ export default function Scene3D() {
     if (!preset) return;
     const cam = cameraRef.current;
     const ctrl = controlsRef.current;
-    cam.position.set(...preset.cameraPos);
-    ctrl.target.set(...preset.target);
+    cam.position.set(...(preset.cameraPos as [number, number, number]));
+    ctrl.target.set(...(preset.target as [number, number, number]));
     cam.updateProjectionMatrix();
     ctrl.update();
   }
@@ -353,6 +358,10 @@ export default function Scene3D() {
     // загрузка PCD/PLY
     const loadPointCloudFromPath = async (path: string) => {
       try {
+        // Очищаем undo stack при загрузке нового файла
+        undoStackRef.current = [];
+        dispatch(setCanUndo(false));
+        
         const data = await window.api.readFile(path);
         const ab = toTightArrayBuffer(data) as ArrayBuffer;
 
@@ -412,6 +421,9 @@ export default function Scene3D() {
 
         pointsRef.current = points;
         scene.add(points);
+        
+        // Обновляем счетчик точек
+        dispatch(setPointCount(points.geometry.attributes.position.count));
 
         // авто-ориентация: сделать тонкую ось вертикальной (Y-up) и положить на плоскость
         {
@@ -486,11 +498,6 @@ export default function Scene3D() {
     const onKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
       
-      // Ctrl для фиксации камеры
-      if (e.key === "Control") {
-        controls.enabled = false;
-      }
-      
       if (e.key === "T" || e.key === "t") {
         flyModeRef.current = !flyModeRef.current;
         if (flyModeRef.current) renderer.domElement.requestPointerLock?.();
@@ -512,11 +519,6 @@ export default function Scene3D() {
     };
     const onKeyUp = (e: KeyboardEvent) => {
       keysRef.current.delete(e.key.toLowerCase());
-      
-      // Отпускание Ctrl - разблокировать камеру
-      if (e.key === "Control") {
-        controls.enabled = true;
-      }
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
@@ -664,6 +666,12 @@ export default function Scene3D() {
     const renderer = rendererRef.current;
     const camera = cameraRef.current;
     const controls = controlsRef.current;
+    
+    // Отключаем Fly Mode при входе в режим редактирования (конфликт клавиш)
+    if (flyModeRef.current) {
+      flyModeRef.current = false;
+      document.exitPointerLock?.();
+    }
 
     const handleMouseDown = (e: MouseEvent) => {
       if (!e.shiftKey) return; // Box selection только с Shift
@@ -672,6 +680,12 @@ export default function Scene3D() {
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation();
+      
+      // Сохраняем текущую позицию камеры и target
+      savedCameraStateRef.current = {
+        position: camera.position.clone(),
+        target: controls.target.clone()
+      };
       
       // Отключаем controls ДО начала выделения
       controls.enabled = false;
@@ -739,19 +753,49 @@ export default function Scene3D() {
         dispatch(setSelectedIndices(selected));
       }
       
-      // Очищаем состояние и включаем controls
+      // Восстанавливаем позицию камеры (защита от случайного движения)
+      if (savedCameraStateRef.current) {
+        camera.position.copy(savedCameraStateRef.current.position);
+        controls.target.copy(savedCameraStateRef.current.target);
+        camera.updateProjectionMatrix();
+        controls.update();
+        savedCameraStateRef.current = null;
+      }
+      
+      // Очищаем состояние
       setIsSelecting(false);
       selectionStartRef.current = null;
       dispatch(setSelectionBox(null));
-      controls.enabled = true;
+      
+      // Включаем controls с задержкой, чтобы OrbitControls не обработал текущее mouseup событие
+      setTimeout(() => {
+        controls.enabled = true;
+      }, 10);
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Delete" && selectedIndices.size > 0) {
+      if (e.key === "Delete" && selectedIndices.length > 0) {
         window.dispatchEvent(new CustomEvent("edit-delete-selected"));
       }
       if (e.key === "Escape") {
         dispatch(setSelectedIndices([]));
+      }
+      // Ctrl+Z для undo (приоритет)
+      if ((e.ctrlKey || e.metaKey) && (e.key === "z" || e.key === "Z")) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("edit-undo"));
+        return;
+      }
+      // Ctrl для блокировки камеры (только если нет других клавиш)
+      if (e.key === "Control" && !e.repeat) {
+        controls.enabled = false;
+      }
+    };
+    
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Отпускание Ctrl - разблокировать камеру
+      if (e.key === "Control") {
+        controls.enabled = true;
       }
     };
 
@@ -760,39 +804,61 @@ export default function Scene3D() {
     renderer.domElement.addEventListener("mousemove", handleMouseMove, { capture: true });
     renderer.domElement.addEventListener("mouseup", handleMouseUp, { capture: true });
     window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
 
     return () => {
       renderer.domElement.removeEventListener("mousedown", handleMouseDown, { capture: true });
       renderer.domElement.removeEventListener("mousemove", handleMouseMove, { capture: true });
       renderer.domElement.removeEventListener("mouseup", handleMouseUp, { capture: true });
       window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
       controls.enabled = true;
     };
-  }, [isEditMode, isSelecting, selectedIndices.size, dispatch]);
+  }, [isEditMode, isSelecting, selectedIndices.length, dispatch]);
 
   // Визуальная подсветка выделенных точек
   useEffect(() => {
     const points = pointsRef.current;
     if (!points || !points.geometry || !isEditMode) return;
     
-    updateSelectionColors(points.geometry, selectedIndices);
-  }, [selectedIndices, isEditMode]);
+    updateSelectionColors(points.geometry, selectedIndices, hiddenIndices);
+  }, [selectedIndices, hiddenIndices, isEditMode]);
 
   // Обработчики событий редактирования
   useEffect(() => {
     const handleDelete = () => {
       const points = pointsRef.current;
-      if (!points || !points.geometry || selectedIndices.size === 0) return;
+      if (!points || !points.geometry || selectedIndices.length === 0) return;
       
       // Сохраняем в undo stack
       const positions = points.geometry.attributes.position;
-      undoStackRef.current.push(positions.array.slice() as Float32Array);
+      const colors = points.geometry.attributes.color;
+      
+      // Сохраняем состояние (позиции + цвета)
+      const state = {
+        positions: positions.array.slice() as Float32Array,
+        colors: colors ? (colors.array.slice() as Float32Array) : null,
+      };
+      
+      undoStackRef.current.push(state.positions);
+      
+      // Ограничиваем размер стека (FIFO - удаляем самые старые)
+      if (undoStackRef.current.length > MAX_UNDO_STACK_SIZE) {
+        undoStackRef.current.shift(); // Удаляем самую старую операцию
+      }
+      
       dispatch(setCanUndo(true));
       
       // Удаляем точки
       const newGeometry = deleteSelectedPoints(points.geometry, selectedIndices);
       points.geometry.dispose();
       points.geometry = newGeometry;
+      
+      // Очищаем originalColors для новой геометрии
+      delete newGeometry.userData.originalColors;
+      
+      // Обновляем счетчик точек
+      dispatch(setPointCount(newGeometry.attributes.position.count));
       
       // Очищаем выделение
       dispatch(setSelectedIndices([]));
@@ -809,27 +875,81 @@ export default function Scene3D() {
       const newGeometry = new THREE.BufferGeometry();
       newGeometry.setAttribute('position', new THREE.BufferAttribute(previousPositions, 3));
       
-      // Копируем цвета если есть
-      if (points.geometry.attributes.color) {
-        const colors = points.geometry.attributes.color.array;
-        newGeometry.setAttribute('color', new THREE.BufferAttribute(colors.slice(), 3));
+      // Применяем цвета заново
+      if (colorMode === "fixed") {
+        // Цвет будет применен материалом
+      } else {
+        // Восстанавливаем цвета по высоте
+        applyHeightColors(newGeometry);
       }
       
       points.geometry.dispose();
       points.geometry = newGeometry;
       
+      // Обновляем материал
+      const mat = points.material as THREE.PointsMaterial;
+      if (colorMode === "fixed") {
+        mat.vertexColors = false;
+        mat.color = new THREE.Color(fixedColor);
+      } else {
+        mat.vertexColors = true;
+      }
+      mat.needsUpdate = true;
+      
+      // Обновляем счетчик точек
+      dispatch(setPointCount(newGeometry.attributes.position.count));
+      
       dispatch(setCanUndo(undoStackRef.current.length > 0));
       dispatch(setSelectedIndices([]));
     };
 
+    const handleHide = () => {
+      // Скрыть выделенные точки
+      if (selectedIndices.length === 0) return;
+      
+      dispatch(setHiddenIndices(selectedIndices));
+      dispatch(setSelectedIndices([])); // Снимаем выделение после скрытия
+    };
+
+    const handleIsolate = () => {
+      // Показать только выделенные точки (скрыть все остальные)
+      const points = pointsRef.current;
+      if (!points || !points.geometry || selectedIndices.length === 0) return;
+
+      const totalCount = points.geometry.attributes.position.count;
+      const selectedSet = new Set(selectedIndices);
+      
+      // Все индексы кроме выделенных становятся скрытыми
+      const toHide: number[] = [];
+      for (let i = 0; i < totalCount; i++) {
+        if (!selectedSet.has(i)) {
+          toHide.push(i);
+        }
+      }
+      
+      dispatch(setHiddenIndices(toHide));
+      dispatch(setSelectedIndices([])); // Снимаем выделение после изоляции
+    };
+
+    const handleShowAll = () => {
+      // Показать все скрытые точки
+      dispatch(clearHidden());
+    };
+
     window.addEventListener("edit-delete-selected", handleDelete);
     window.addEventListener("edit-undo", handleUndo);
+    window.addEventListener("edit-hide-selected", handleHide);
+    window.addEventListener("edit-isolate-selected", handleIsolate);
+    window.addEventListener("edit-show-all", handleShowAll);
 
     return () => {
       window.removeEventListener("edit-delete-selected", handleDelete);
       window.removeEventListener("edit-undo", handleUndo);
+      window.removeEventListener("edit-hide-selected", handleHide);
+      window.removeEventListener("edit-isolate-selected", handleIsolate);
+      window.removeEventListener("edit-show-all", handleShowAll);
     };
-  }, [selectedIndices, dispatch]);
+  }, [selectedIndices, hiddenIndices, dispatch, colorMode, fixedColor]);
 
   // тумблеры видимости гизмосов
   useEffect(() => {
@@ -1103,6 +1223,29 @@ export default function Scene3D() {
 
   return (
     <div style={{ width: "100%", height: "100%", position: "relative" }} ref={mountRef}>
+      {/* Edit Mode Indicator */}
+      {isEditMode && (
+        <div
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 130,
+            padding: "6px 12px",
+            background: "rgba(34, 211, 238, 0.9)",
+            color: "#000",
+            fontSize: 12,
+            fontWeight: 600,
+            borderRadius: 6,
+            pointerEvents: "none",
+            zIndex: 100,
+            boxShadow: "0 2px 8px rgba(0,0,0,0.3)",
+            letterSpacing: "0.5px",
+          }}
+        >
+          ✏️ РЕЖИМ РЕДАКТИРОВАНИЯ
+        </div>
+      )}
+      
       {/* Selection Box Overlay */}
       {selectionBox && selectionBox.isActive && (
         <div
@@ -1170,7 +1313,7 @@ export default function Scene3D() {
           maxWidth: 380,
         }}
       >
-{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nCtrl (hold) — Lock camera\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
+{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
       </div>
     </div>
   );

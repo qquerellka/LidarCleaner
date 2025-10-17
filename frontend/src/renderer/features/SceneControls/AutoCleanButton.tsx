@@ -5,6 +5,13 @@ import { Button, Text, Paper, Stack, Progress } from "@mantine/core";
 import { IconSparkles, IconAlertCircle } from "@tabler/icons-react";
 import type { RootState } from "../../store";
 import { setFilePath } from "../../store/uiSlice";
+import {
+  showErrorWithDetails,
+  showSuccessNotification,
+  showLoadingNotification,
+  updateLoadingToSuccess,
+  updateLoadingToError,
+} from "../../utils/notifications";
 
 export default function AutoCleanButton() {
   const filePath = useSelector((s: RootState) => s.ui.filePath);
@@ -28,6 +35,7 @@ export default function AutoCleanButton() {
       if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
       
       // Обработка завершена - открываем новый файл
+      updateLoadingToSuccess('auto-clean', 'Облако точек успешно очищено');
       setBusy(false);
       setProgress(null);
       setCurrentTaskId(null);
@@ -39,11 +47,11 @@ export default function AutoCleanButton() {
     const unsubError = window.api.onProcessError((payload) => {
       if (!currentTaskIdRef.current || payload.taskId !== currentTaskIdRef.current) return;
       
+      updateLoadingToError('auto-clean', payload.error);
       setBusy(false);
       setProgress(null);
       setCurrentTaskId(null);
       currentTaskIdRef.current = null;
-      alert(`Processing error: ${payload.error}`);
     });
 
     return () => {
@@ -59,13 +67,13 @@ export default function AutoCleanButton() {
     setProgress(null);
     
     try {
+      showLoadingNotification('Отправка файла на обработку...', 'auto-clean');
       // Получаем taskId и ждем события process-done
       const taskId = await window.api.backendProcessDynamic(filePath);
       setCurrentTaskId(taskId);
       currentTaskIdRef.current = taskId;
     } catch (e) {
-      console.error(e);
-      alert("Не удалось обработать файл. Проверь соединение с бэкендом и логи.");
+      showErrorWithDetails(e, 'Не удалось обработать файл');
       setBusy(false);
       setProgress(null);
     }

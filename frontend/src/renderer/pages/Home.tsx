@@ -28,7 +28,11 @@ export default function Home() {
       </AppShell.Header>
 
       <AppShell.Navbar p="md">
-        <ScrollArea style={{ height: "calc(100vh - 60px)" }}>
+        <ScrollArea 
+          style={{ height: "calc(100vh - 60px)" }}
+          scrollbarSize={0}
+          type="never"
+        >
           <FileLoader />
           <Divider my="md" />
           <AutoCleanButton />
