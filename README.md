@@ -10,7 +10,7 @@
 [![Three.js](https://img.shields.io/badge/Three.js-0.180-000000?logo=three.js)](https://threejs.org/)
 [![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go)](https://golang.org/)
 
-[Быстрый старт](#-быстрый-старт) • [Возможности](#-возможности) • [Архитектура](#-архитектура) • [Документация](#-документация) • [API](#-api)
+[Быстрый старт](QUICK_START.md) • [Возможности](#-возможности) • [Документация](docs/INDEX.md) • [API](docs/api/rest-api.md) • [ML](ml/README.md)
 
 ![schema](assets/schema.png)
 
@@ -24,14 +24,8 @@
 - [Возможности](#-возможности)
 - [Требования](#-требования)
 - [Быстрый старт](#-быстрый-старт)
-- [Архитектура](#-архитектура)
 - [Горячие клавиши](#-горячие-клавиши)
-- [API Backend](#-api-backend)
-- [Разработка](#-разработка)
-- [Сборка для продакшн](#-сборка-для-продакшн)
-- [Структура проекта](#-структура-проекта)
-- [Технологии](#-технологии)
-- [Устранение неполадок](#-устранение-неполадок)
+- [Документация](#-документация)
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
 - [Лицензия](#-лицензия)
@@ -167,7 +161,30 @@ npm run dev
 
 ---
 
-## 🏗️ Архитектура
+## 📚 Документация
+
+### 📖 Основные документы
+
+- **[Быстрый старт](QUICK_START.md)** - установка и первый запуск
+- **[Индекс документации](docs/INDEX.md)** - полный список документов
+- **[FAQ](docs/user-guide/faq.md)** - часто задаваемые вопросы
+- **[Troubleshooting](docs/user-guide/troubleshooting.md)** - решение проблем
+
+### 👨‍💻 Для разработчиков
+
+- **[Contributing](docs/development/contributing.md)** - как внести вклад
+- **[Development Guide](docs/development/development.md)** - настройка окружения
+- **[Architecture](docs/development/architecture.md)** - архитектура приложения
+- **[REST API](docs/api/rest-api.md)** - документация API
+
+### 🤖 Machine Learning
+
+- **[ML Guide](ml/README.md)** - обучение моделей и инференс
+- **[Notebooks](ml/notebooks/)** - Jupyter notebooks для обучения
+
+---
+
+## 🏗️ Краткая архитектура
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -214,6 +231,8 @@ npm run dev
 │  └──────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+**Подробнее:** [docs/development/architecture.md](docs/development/architecture.md)
 
 ### Технологический стек
 
@@ -284,250 +303,6 @@ npm run dev
 | `Ctrl + S` | Сохранить |
 | `Ctrl + Alt + S` | Сохранить как |
 
----
-
-## 🌐 API Backend
-
-### Base URL
-```
-http://localhost:8000
-```
-
-### Endpoints
-
-#### Health Check
-```http
-GET /health
-```
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "timestamp": "2024-10-18T00:00:00Z"
-}
-```
-
----
-
-#### Upload File
-```http
-POST /files/upload_file
-Content-Type: multipart/form-data
-```
-
-**Parameters:**
-- `file` (formData) - PCD или PLY файл
-
-**Response:**
-```json
-{
-  "file_id": "uuid-here",
-  "filename": "pointcloud.pcd",
-  "size": 12345678,
-  "uploaded_at": "2024-10-18T00:00:00Z"
-}
-```
-
----
-
-#### Process Dynamic Objects
-```http
-POST /files/process_dynamic
-Content-Type: application/json
-```
-
-**Body:**
-```json
-{
-  "file_path": "/path/to/pointcloud.pcd"
-}
-```
-
-**Response:**
-```json
-{
-  "task_id": "task-uuid",
-  "status": "processing",
-  "estimated_time": 900
-}
-```
-
----
-
-#### Get Processing Status
-```http
-GET /files/process_status/:task_id
-```
-
-**Response:**
-```json
-{
-  "task_id": "task-uuid",
-  "status": "completed",
-  "progress": 100,
-  "result_path": "/path/to/cleaned.pcd"
-}
-```
-
----
-
-## 🛠️ Разработка
-
-### Структура Frontend
-
-```
-frontend/
-├── src/
-│   ├── main/           # Electron main process
-│   │   ├── index.ts    # Entry point
-│   │   ├── window.ts   # Window management
-│   │   ├── menu.ts     # Application menu
-│   │   └── ipc/        # IPC handlers
-│   │       ├── dialogs.ts
-│   │       ├── backend.ts
-│   │       └── ...
-│   └── renderer/       # React app
-│       ├── main.tsx    # React entry
-│       ├── App.tsx
-│       ├── components/ # Reusable components
-│       ├── features/   # Feature modules
-│       │   ├── FileLoader/
-│       │   ├── SceneControls/
-│       │   └── EditControls/
-│       ├── store/      # Redux store
-│       ├── three/      # Three.js integration
-│       │   ├── Scene3D.tsx
-│       │   └── hooks/  # Custom Three.js hooks
-│       └── utils/      # Utilities
-├── dist-electron/      # Compiled electron code
-└── package.json
-```
-
-### Структура Backend
-
-```
-backend/
-├── cmd/
-│   └── app/
-│       └── main.go     # Entry point
-├── internal/
-│   ├── handlers/       # HTTP handlers
-│   │   ├── health.go
-│   │   ├── files.go
-│   │   └── process.go
-│   ├── services/       # Business logic
-│   ├── models/         # Data models
-│   └── config/         # Configuration
-├── pkg/                # Shared packages
-├── docker-compose.yml
-└── Dockerfile
-```
-
-### Запуск в режиме разработки
-
-```bash
-# Terminal 1: Backend
-cd backend
-docker-compose up
-
-# Terminal 2: Frontend
-cd frontend
-npm run dev
-```
-
-### Отладка
-
-**Frontend DevTools:**
-- Автоматически открываются в dev режиме
-- `Ctrl+Shift+I` - Toggle DevTools
-
-**Backend Logs:**
-```bash
-cd backend
-docker-compose logs -f app
-```
-
-### Линтинг и форматирование
-
-**Frontend:**
-```bash
-cd frontend
-npm run lint
-npm run format
-```
-
-**Backend:**
-```bash
-cd backend
-go fmt ./...
-go vet ./...
-golangci-lint run
-```
-
----
-
-## 📦 Сборка для продакшн
-
-### Полная сборка
-
-```bash
-# Сборка backend
-cd backend
-docker-compose build
-
-# Сборка frontend
-cd ../frontend
-npm run build
-```
-
-### Создание дистрибутива
-
-```bash
-cd frontend
-
-# Сборка Electron app
-npm run package
-
-# Создание установщиков
-npm run make
-```
-
-Результат в `frontend/dist/`:
-- `LidarCleaner-0.1.0-x86_64.AppImage` (Linux)
-- `LidarCleaner-0.1.0.dmg` (macOS)
-- `LidarCleaner Setup 0.1.0.exe` (Windows)
-
----
-
-## 📁 Структура проекта
-
-```
-LidarCleaner/
-├── backend/                # Go backend
-│   ├── cmd/               # Entry points
-│   ├── internal/          # Internal packages
-│   ├── pkg/               # Public packages
-│   ├── migrations/        # DB migrations
-│   ├── docker-compose.yml
-│   ├── Dockerfile
-│   └── go.mod
-│
-├── frontend/              # Electron + React app
-│   ├── src/
-│   │   ├── main/         # Electron main
-│   │   └── renderer/     # React app
-│   ├── dist-electron/    # Compiled electron
-│   ├── public/           # Static assets
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── assets/               # README assets
-│   └── schema.png
-│
-├── start-lidarcleaner.sh # Launch script
-└── README.md
-```
 
 ---
 
@@ -561,61 +336,17 @@ LidarCleaner/
 
 ## 🐛 Устранение неполадок
 
-### Backend не запускается
+**Полный гайд:** [docs/user-guide/troubleshooting.md](docs/user-guide/troubleshooting.md)
 
-**Проблема:** `dial tcp: lookup db: no such host`
+**Частые проблемы:**
 
-**Решение:**
-```bash
-cd backend
-docker-compose down
-docker-compose up -d
-```
+- Backend не запускается → перезапустите Docker
+- Frontend не подключается → проверьте health endpoint
+- Electron не открывается → перезапустите процессы
+- Файлы не загружаются → проверьте формат и размер
+- Медленная отрисовка → уменьшите размер точек
 
----
-
-### Frontend не подключается к Backend
-
-**Проблема:** `ERR_CONNECTION_REFUSED`
-
-**Решение:**
-1. Убедитесь что backend запущен: `curl http://localhost:8000/health`
-2. Проверьте `BACKEND_URL` в frontend
-3. Проверьте логи: `docker-compose logs -f app`
-
----
-
-### Electron окно не открывается
-
-**Проблема:** Процесс запущен, но окна нет
-
-**Решение:**
-1. Перезапустите приложение
-2. Проверьте консоль на ошибки
-3. Убедитесь что Vite сервер запущен (http://localhost:5173)
-
----
-
-### Файлы не загружаются
-
-**Проблема:** Большие файлы не открываются
-
-**Решение:**
-- Проверьте размер файла (лимит: 2GB)
-- Увеличьте RAM для Docker
-- Проверьте свободное место на диске
-
----
-
-### Медленная отрисовка
-
-**Проблема:** Лаги при работе с большими облаками
-
-**Решение:**
-- Уменьшите размер точек
-- Используйте фиксированный цвет вместо цветов вершин
-- Закройте другие приложения
-- Обновите драйверы видеокарты
+**FAQ:** [docs/user-guide/faq.md](docs/user-guide/faq.md)
 
 ---
 
@@ -645,20 +376,16 @@ docker-compose up -d
 
 Мы приветствуем вклад от сообщества! 
 
-### Как внести вклад
+**Полное руководство:** [docs/development/contributing.md](docs/development/contributing.md)
 
-1. **Fork** репозиторий
-2. Создайте **feature branch** (`git checkout -b feature/amazing-feature`)
-3. **Commit** изменения (`git commit -m 'Add amazing feature'`)
-4. **Push** в branch (`git push origin feature/amazing-feature`)
-5. Откройте **Pull Request**
+**Быстрый старт:**
+1. Fork репозиторий
+2. Создайте feature branch
+3. Сделайте изменения
+4. Добавьте тесты
+5. Отправьте Pull Request
 
-### Правила
-
-- Следуйте существующему стилю кода
-- Добавьте тесты для новых функций
-- Обновите документацию
-- Опишите изменения в PR
+**Для разработчиков:** [docs/development/development.md](docs/development/development.md)
 
 ---
 
@@ -683,11 +410,12 @@ docker-compose up -d
 
 ---
 
-## 📞 Контакты
+## 📞 Контакты и поддержка
 
-- **Issues**: [GitHub Issues](https://github.com/lidarcleaner/app/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/lidarcleaner/app/discussions)
-- **Email**: info@lidarcleaner.app
+- 🐛 **Issues**: [GitHub Issues](https://github.com/qquerellka/LidarCleaner/issues)
+- 💬 **Discussions**: [GitHub Discussions](https://github.com/qquerellka/LidarCleaner/discussions)
+- 📚 **Документация**: [docs/INDEX.md](docs/INDEX.md)
+- ❓ **FAQ**: [docs/user-guide/faq.md](docs/user-guide/faq.md)
 
 ---
 

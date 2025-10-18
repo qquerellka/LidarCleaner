@@ -14,6 +14,7 @@ interface UiState {
   loadingProgress: number; // 0-100
   loadingMessage: string;
   recentFiles: RecentFile[];
+  isAutoProcessing: boolean; // Флаг автоматической обработки
 }
 
 const loadRecentFiles = (): RecentFile[] => {
@@ -32,6 +33,7 @@ const initialState: UiState = {
   loadingProgress: 0,
   loadingMessage: '',
   recentFiles: loadRecentFiles(),
+  isAutoProcessing: false,
 };
 
 const uiSlice = createSlice({
@@ -98,6 +100,9 @@ const uiSlice = createSlice({
       try {
         localStorage.setItem('recent_files', JSON.stringify(state.recentFiles));
       } catch {}
+    },
+    setAutoProcessing(state, action: PayloadAction<boolean>) {
+      state.isAutoProcessing = action.payload;
     }
   }
 });
@@ -109,5 +114,6 @@ export const {
   setLoadingProgress,
   clearRecentFiles,
   removeRecentFile,
+  setAutoProcessing,
 } = uiSlice.actions;
 export default uiSlice.reducer;

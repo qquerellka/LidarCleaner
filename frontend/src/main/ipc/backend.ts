@@ -160,9 +160,21 @@ export function registerBackendIpc() {
       const { taskId } = payload;
       const ctrl = processingTasks.get(taskId);
       if (!ctrl) return { ok: false, message: "unknown task" };
+      
       try {
+        // Отправляем запрос на бэкенд для отмены через RabbitMQ
+        // Бэкенд отправит глобальное сообщение "cancel" в очередь
+        try {
+          await api.post("/files/cancel");
+        } catch (apiError) {
+          console.warn("Failed to send cancel request to backend:", apiError);
+          // Продолжаем даже если бэкенд не ответил
+        }
+        
+        // Прерываем HTTP запрос на стороне клиента
         ctrl.abort();
         processingTasks.delete(taskId);
+        
         return { ok: true };
       } catch (e) {
         return { ok: false, message: String(e) };
