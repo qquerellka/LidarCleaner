@@ -1,185 +1,145 @@
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
+import {
+  Stack,
+  Radio,
+  Group,
+  ColorInput,
+  Checkbox,
+  Button,
+  Text,
+  Paper,
+  Divider,
+  Card,
+  Badge,
+  Kbd,
+  Switch,
+} from "@mantine/core";
+import { IconRuler } from "@tabler/icons-react";
 import type { RootState } from "../../store";
 import {
-  setPointSize,
   setColorMode,
   setFixedColor,
   setShowAxes,
   setShowLight,
   setShowGrid,
   triggerCameraCommand,
-
-  // NEW:
   setShowBBox,
-  setClippingEnabled,
-  setClipX,
-  setClipY,
-  setClipZ,
+  setMeasurementMode,
 } from "../../store/sceneSlice";
 
 export default function SceneControls() {
   const dispatch = useDispatch();
   const {
-    pointSize, colorMode, fixedColor,
+    colorMode, fixedColor,
     showAxes, showLight, showGrid,
-    showBBox,
-    clippingEnabled, clipX, clipY, clipZ,
+    showBBox, measurementMode,
   } = useSelector((s: RootState) => s.scene);
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Point size: {pointSize.toFixed(3)}</label>
-        <input
-          type="range"
-          min={0.001}
-          max={0.1}
-          step={0.001}
-          value={pointSize}
-          onChange={(e) => dispatch(setPointSize(parseFloat(e.target.value)))}
-        />
-      </div>
+    <Stack gap="md">
+      {/* Color Mode */}
+      <Paper p="md" withBorder>
+        <Text size="sm" fw={500} mb="xs">Режим цвета</Text>
+        <Radio.Group
+          value={colorMode}
+          onChange={(value) => dispatch(setColorMode(value as "vertex" | "fixed"))}
+        >
+          <Group>
+            <Radio value="vertex" label="Цвета точек" />
+            <Radio value="fixed" label="Единый цвет" />
+          </Group>
+        </Radio.Group>
 
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Color mode</label>
-        <label style={{ marginRight: 12 }}>
-          <input
-            type="radio"
-            name="colorMode"
-            checked={colorMode === "vertex"}
-            onChange={() => dispatch(setColorMode("vertex"))}
-          />{" "}
-          Vertex
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="colorMode"
-            checked={colorMode === "fixed"}
-            onChange={() => dispatch(setColorMode("fixed"))}
-          />{" "}
-          Fixed
-        </label>
-      </div>
-
-      {colorMode === "fixed" && (
-        <div>
-          <label style={{ display: "block", marginBottom: 6 }}>Fixed color</label>
-          <input
-            type="color"
+        {colorMode === "fixed" && (
+          <ColorInput
+            label="Выбрать цвет"
             value={fixedColor}
-            onChange={(e) => dispatch(setFixedColor(e.target.value))}
-            style={{ width: 48, height: 32, padding: 0, border: "1px solid #555", background: "none" }}
+            onChange={(value) => dispatch(setFixedColor(value))}
+            mt="sm"
+            format="hex"
           />
-        </div>
-      )}
+        )}
+      </Paper>
 
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Gizmos</label>
-        <label style={{ display: "block" }}>
-          <input
-            type="checkbox"
+      {/* Gizmos */}
+      <Paper p="md" withBorder>
+        <Text size="sm" fw={500} mb="xs">Элементы сцены</Text>
+        <Stack gap="xs">
+          <Checkbox
+            label="Показать оси"
             checked={showAxes}
-            onChange={(e) => dispatch(setShowAxes(e.target.checked))}
-          />{" "}
-          Show axes
-        </label>
-        <label style={{ display: "block" }}>
-          <input
-            type="checkbox"
+            onChange={(e) => dispatch(setShowAxes(e.currentTarget.checked))}
+          />
+          <Checkbox
+            label="Показать свет"
             checked={showLight}
-            onChange={(e) => dispatch(setShowLight(e.target.checked))}
-          />{" "}
-          Show light
-        </label>
-        <label style={{ display: "block" }}>
-          <input
-            type="checkbox"
+            onChange={(e) => dispatch(setShowLight(e.currentTarget.checked))}
+          />
+          <Checkbox
+            label="Показать сетку"
             checked={showGrid}
-            onChange={(e) => dispatch(setShowGrid(e.target.checked))}
-          />{" "}
-          Show grid
-        </label>
-        <label style={{ display: "block" }}>
-          <input
-            type="checkbox"
+            onChange={(e) => dispatch(setShowGrid(e.currentTarget.checked))}
+          />
+          <Checkbox
+            label="Показать границы"
             checked={showBBox}
-            onChange={(e) => dispatch(setShowBBox(e.target.checked))}
-          />{" "}
-          Show bounding box
-        </label>
-      </div>
+            onChange={(e) => dispatch(setShowBBox(e.currentTarget.checked))}
+          />
+        </Stack>
+      </Paper>
 
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Clipping</label>
-        <label style={{ display: "block" }}>
-          <input
-            type="checkbox"
-            checked={clippingEnabled}
-            onChange={(e) => dispatch(setClippingEnabled(e.target.checked))}
-          />{" "}
-          Enable clipping
-        </label>
+      {/* Camera Views */}
+      <Paper p="md" withBorder>
+        <Text size="sm" fw={500} mb="xs">Виды камеры</Text>
+        <Group grow>
+          <Button variant="light" onClick={() => dispatch(triggerCameraCommand("top"))}>
+            Сверху
+          </Button>
+          <Button variant="light" onClick={() => dispatch(triggerCameraCommand("front"))}>
+            Спереди
+          </Button>
+        </Group>
+        <Group grow mt="xs">
+          <Button variant="light" onClick={() => dispatch(triggerCameraCommand("side"))}>
+            Сбоку
+          </Button>
+          <Button variant="light" onClick={() => dispatch(triggerCameraCommand("reset"))}>
+            Сброс
+          </Button>
+        </Group>
+        <Text size="xs" c="dimmed" mt="xs">
+          Пресеты: <Kbd>Alt+1..5</Kbd> загрузить, <Kbd>Ctrl+Alt+1..5</Kbd> сохранить
+        </Text>
+      </Paper>
 
-        {(["X", "Y", "Z"] as const).map((axis) => {
-          const clip = axis === "X" ? clipX : axis === "Y" ? clipY : clipZ;
-          const setClip = axis === "X" ? setClipX : axis === "Y" ? setClipY : setClipZ;
-          return (
-            <div key={axis} style={{ display: "grid", gridTemplateColumns: "auto auto 1fr 1fr", gap: 8, alignItems: "center", opacity: clippingEnabled ? 1 : 0.5 }}>
-              <strong>{axis}</strong>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={clip.enabled}
-                  onChange={(e) => dispatch(setClip({ enabled: e.target.checked }))}
-                  disabled={!clippingEnabled}
-                /> on
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={clip.min}
-                onChange={(e) => dispatch(setClip({ min: parseFloat(e.target.value) }))}
-                disabled={!clippingEnabled || !clip.enabled}
-                title={`${axis} min (${clip.min.toFixed(2)})`}
-              />
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.01}
-                value={clip.max}
-                onChange={(e) => dispatch(setClip({ max: parseFloat(e.target.value) }))}
-                disabled={!clippingEnabled || !clip.enabled}
-                title={`${axis} max (${clip.max.toFixed(2)})`}
-              />
-            </div>
-          );
-        })}
-        <small>Диапазоны — в нормированных долях bbox по соответствующей оси (0..1).</small>
-      </div>
+      {/* Measurement Tool */}
+      <Paper p="md" withBorder>
+        <Group justify="space-between" align="center">
+          <Group gap="xs">
+            <IconRuler size={20} />
+            <Text size="sm" fw={500}>Измерение расстояний</Text>
+          </Group>
+          <Switch
+            checked={measurementMode}
+            onChange={(e) => dispatch(setMeasurementMode(e.currentTarget.checked))}
+            size="sm"
+          />
+        </Group>
+        {measurementMode && (
+          <Text size="xs" c="dimmed" mt="xs">
+            Кликните на две точки чтобы измерить расстояние. Нажмите <Kbd>M</Kbd> чтобы выйти.
+          </Text>
+        )}
+      </Paper>
 
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Views</label>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 6 }}>
-          <button onClick={() => dispatch(triggerCameraCommand("top"))}>Top</button>
-          <button onClick={() => dispatch(triggerCameraCommand("front"))}>Front</button>
-          <button onClick={() => dispatch(triggerCameraCommand("side"))}>Side</button>
-          <button onClick={() => dispatch(triggerCameraCommand("reset"))}>Reset</button>
-        </div>
-        <small>Пресеты видов: <kbd>Alt+1..5</kbd> — загрузить, <kbd>Ctrl+Alt+1..5</kbd> — сохранить.</small>
-      </div>
-
-      <div>
-        <label style={{ display: "block", marginBottom: 6 }}>Legend</label>
-        <div style={{ fontSize: 12, lineHeight: 1.4 }}>
-          <div>Color: {colorMode === "vertex" ? "from PCD (or height LUT)" : fixedColor}</div>
-          <div>Point size: {pointSize.toFixed(3)}</div>
-        </div>
-      </div>
-    </div>
+      {/* Legend */}
+      <Card withBorder p="sm">
+        <Text size="xs" fw={500} mb={4}>Информация</Text>
+        <Badge variant="light" size="sm" fullWidth>
+          {colorMode === "vertex" ? "Цвета из файла / по высоте" : `Цвет: ${fixedColor}`}
+        </Badge>
+      </Card>
+    </Stack>
   );
 }

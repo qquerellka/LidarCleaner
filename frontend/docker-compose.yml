@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  # Сборка фронтенда
+  frontend-builder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    volumes:
+      - ./dist-electron:/app/dist-electron
+      - ./node_modules:/app/node_modules
+    command: npm run build
+    
+  # Runtime для разработки (требует X11)
+  frontend-runtime:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    environment:
+      - DISPLAY=${DISPLAY:-:99}
+      - BACKEND_URL=${BACKEND_URL:-http://backend:8000}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      - ./dist-electron:/app/dist-electron
+    network_mode: host
+    # Раскомментируйте для запуска с виртуальным дисплеем
+    # command: sh -c "Xvfb :99 -screen 0 1024x768x24 & npm run preview"
+    
+  # Сборка дистрибутива (AppImage, .deb и т.д.)
+  frontend-dist:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dist-builder
+    volumes:
+      - ./dist:/app/dist
+    command: electron-builder --linux AppImage
+

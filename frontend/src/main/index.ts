@@ -6,7 +6,7 @@ import { setupMenu } from "./menu";
 import { registerDialogIpc } from "./ipc/dialogs";
 import { registerAppPathsIpc } from "./ipc/appPaths";
 import { registerNetIpc } from "./ipc/net";
-import { registerFsIpc } from "./ipc/fs"; // по желанию
+import { registerFsIpc } from "./ipc/fs";
 import { registerBackendIpc } from "./ipc/backend";
 
 let mainWindow: BrowserWindow | null = null;
@@ -14,13 +14,17 @@ let mainWindow: BrowserWindow | null = null;
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 const log = initLogger();
 
-// single-instance (guarded)
-try {
-  if (!app || typeof app.requestSingleInstanceLock !== "function" || !app.requestSingleInstanceLock()) {
-    app?.quit?.();
-  }
-} catch {
-  // ignore in dev if electron context not fully ready
+// Проверка что app доступен
+if (!app) {
+  console.error('Electron app is not available!');
+  process.exit(1);
+}
+
+// single-instance lock
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
 }
 
 function registerAllIpc() {

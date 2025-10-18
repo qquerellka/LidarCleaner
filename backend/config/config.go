@@ -1,11 +1,10 @@
 package config
 
 import (
+	"github.com/joho/godotenv"
 	"log"
 	"os"
 	"strconv"
-
-	"github.com/joho/godotenv"
 )
 
 // Config структура, обозначающая структуру .env файла
@@ -25,27 +24,26 @@ type Config struct {
 var AppConfig *Config
 
 // LoadConfig загружает конфигурацию из файла .env
-
 func LoadConfig() {
- // Загружаем переменные окружения из файла .env
- err := godotenv.Load()
- if err != nil {
-  log.Println("Error loading .env file")
- }
+	// Загружаем переменные окружения из файла .env
+	err := godotenv.Load()
+	if err != nil {
+		log.Println("Error loading .env file")
+	}
 
- // Устанавливаем конфигурационные параметры
- AppConfig = &Config{
-  Port:              "8000",
-  MinioEndpoint:     "minio:9000",
-  BucketName:        "defaultbucket",
-  MinioRootUser:     "root",
-  MinioRootPassword: "minio_password",
-  MinioUseSSL:       false,
-  DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
-  RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
-  RabbitMQExchange:  "pcd_files",
-  RabbitMQQueue:     "file_metadata_queue",
- }
+	// Устанавливаем конфигурационные параметры
+	AppConfig = &Config{
+		Port:              "8000",
+		MinioEndpoint:     "minio:9000",
+		BucketName:        "defaultbucket",
+		MinioRootUser:     "root",
+		MinioRootPassword: "minio_password",
+		MinioUseSSL:       false,
+		DatabaseURL:       "postgresql://postgres:postgres@db:5432/postgres?sslmode=disable",
+		RabbitMQURL:       "amqp://guest:guest@rabbitmq:5672/",
+		RabbitMQExchange:  "pcd_files",
+		RabbitMQQueue:     "file_metadata_queue",
+	}
 }
 
 // getEnv считывает значение переменной окружения или возвращает значение по умолчанию, если переменная не установлена

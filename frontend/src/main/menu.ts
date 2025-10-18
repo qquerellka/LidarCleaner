@@ -29,7 +29,7 @@ export function setupMenu(win: BrowserWindow) {
     },
     {
       label: "View",
-      submenu: [{ role: "togglefullscreen" }, { role: "zoomin" }, { role: "zoomout" }, { role: "resetzoom" }],
+      submenu: [{ role: "togglefullscreen" }, { role: "zoomIn" }, { role: "zoomOut" }, { role: "resetZoom" }],
     },
     {
       label: "Help",
