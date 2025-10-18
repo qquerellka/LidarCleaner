@@ -4,7 +4,7 @@ import { Overlay, Center, Stack, Text, Progress, Paper } from "@mantine/core";
 import { IconCloudUpload } from "@tabler/icons-react";
 import type { RootState } from "../store";
 
-export default function LoadingOverlay() {
+const LoadingOverlay = React.memo(() => {
   const { isLoading, loadingProgress, loadingMessage } = useSelector((s: RootState) => s.ui);
 
   if (!isLoading) return null;
@@ -34,5 +34,9 @@ export default function LoadingOverlay() {
       </Center>
     </Overlay>
   );
-}
+});
+
+LoadingOverlay.displayName = 'LoadingOverlay';
+
+export default LoadingOverlay;
 

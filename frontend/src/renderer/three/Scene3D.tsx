@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import * as THREE from "three";
 import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
@@ -37,34 +37,12 @@ import { setPointCount } from "../store/uiSlice";
 import {
   getPointsInSelectionBox,
   updateSelectionColors,
-  deleteSelectedPoints,
 } from "./boxSelection";
 import { calculateSelectionStats } from "./selectionStats";
 import { getPointsInBrushRadius, getBrushCursorPosition } from "./brushSelection";
-
-function toTightArrayBuffer(u8: Uint8Array): ArrayBuffer | SharedArrayBuffer {
-  return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength);
-}
-
-function applyHeightColors(geo: THREE.BufferGeometry) {
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute | undefined;
-  if (!pos) return;
-  let minZ = Infinity, maxZ = -Infinity;
-  for (let i = 0; i < pos.count; i++) {
-    const z = pos.getZ(i);
-    if (z < minZ) minZ = z;
-    if (z > maxZ) maxZ = z;
-  }
-  const span = maxZ - minZ || 1;
-  const colors = new Float32Array(pos.count * 3);
-  for (let i = 0; i < pos.count; i++) {
-    const t = (pos.getZ(i) - minZ) / span;
-    colors[i * 3 + 0] = t;
-    colors[i * 3 + 1] = 0;
-    colors[i * 3 + 2] = 1 - t;
-  }
-  geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
-}
+import { deleteSelectedPoints, toTightArrayBuffer, applyHeightColors } from "./utils/pointCloudUtils";
+import { fitCameraToObject } from "./utils/cameraUtils";
+import { applyClipping } from "./utils/clippingUtils";
 
 export default function Scene3D() {
   const dispatch = useDispatch();
@@ -88,6 +66,7 @@ export default function Scene3D() {
   const pointsRef = useRef<THREE.Points | null>(null);
   const axesRef = useRef<THREE.AxesHelper | null>(null);
   const lightRef = useRef<THREE.DirectionalLight | null>(null);
+  const ambientLightRef = useRef<THREE.AmbientLight | null>(null);
   const gridRef = useRef<THREE.GridHelper | null>(null);
 
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -95,6 +74,11 @@ export default function Scene3D() {
   const controlsRef = useRef<OrbitControls | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const raycasterRef = useRef<THREE.Raycaster | null>(null);
+  
+  // Mini axes refs
+  const axesSceneRef = useRef<THREE.Scene | null>(null);
+  const axesCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
+  const axesMiniRef = useRef<THREE.AxesHelper | null>(null);
   
   // Selection box refs
   const [isSelecting, setIsSelecting] = useState(false);
@@ -129,83 +113,7 @@ export default function Scene3D() {
   // Measurement tool refs
   const measurementLineRef = useRef<THREE.Line | null>(null);
   const measurementSpheres = useRef<THREE.Mesh[]>([]);
-
-  // мини-компас
-  const axesSceneRef = useRef<THREE.Scene | null>(null);
-  const axesCameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const axesRendererRef = useRef<THREE.WebGLRenderer | null>(null);
-
-  function fitCameraToObject(
-    camera: THREE.PerspectiveCamera,
-    controls: OrbitControls,
-    object: THREE.Object3D,
-    offset = 1.2
-  ) {
-    const box = new THREE.Box3().setFromObject(object);
-    const sphere = box.getBoundingSphere(new THREE.Sphere());
-
-    const vFov = THREE.MathUtils.degToRad(camera.fov);
-    const aspect = camera.aspect;
-    const distV = sphere.radius / Math.tan(vFov / 2);
-    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
-    const distH = sphere.radius / Math.tan(hFov / 2);
-    const distance = Math.max(distV, distH) * offset;
-
-    camera.near = Math.max(0.001, sphere.radius / 1000);
-    camera.far = sphere.radius * 1000;
-    camera.updateProjectionMatrix();
-
-    const dir = new THREE.Vector3(0, 0, 1);
-    camera.position.copy(sphere.center.clone().add(dir.multiplyScalar(distance)));
-
-    controls.target.copy(sphere.center);
-    controls.maxDistance = sphere.radius * 100;
-    controls.update();
-  }
-
-  function applyClipping() {
-    const renderer = rendererRef.current;
-    const pts = pointsRef.current;
-    const bbox = bboxRef.current;
-
-    if (!renderer || !pts) return;
-    renderer.localClippingEnabled = !!clippingEnabled;
-
-    const mat = pts.material as THREE.PointsMaterial;
-    if (!clippingEnabled || !bbox) {
-      mat.clippingPlanes = [];
-      mat.needsUpdate = true;
-      return;
-    }
-
-    const planes: THREE.Plane[] = [];
-    const min = bbox.min.clone();
-    const max = bbox.max.clone();
-
-    const lerp = THREE.MathUtils.lerp;
-    const xMinW = lerp(min.x, max.x, clipX.min);
-    const xMaxW = lerp(min.x, max.x, clipX.max);
-    const yMinW = lerp(min.y, max.y, clipY.min);
-    const yMaxW = lerp(min.y, max.y, clipY.max);
-    const zMinW = lerp(min.z, max.z, clipZ.min);
-    const zMaxW = lerp(min.z, max.z, clipZ.max);
-
-    if (clipX.enabled) {
-      planes.push(new THREE.Plane(new THREE.Vector3(1, 0, 0), -xMinW));
-      planes.push(new THREE.Plane(new THREE.Vector3(-1, 0, 0), xMaxW));
-    }
-    if (clipY.enabled) {
-      planes.push(new THREE.Plane(new THREE.Vector3(0, 1, 0), -yMinW));
-      planes.push(new THREE.Plane(new THREE.Vector3(0, -1, 0), yMaxW));
-    }
-    if (clipZ.enabled) {
-      planes.push(new THREE.Plane(new THREE.Vector3(0, 0, 1), -zMinW));
-      planes.push(new THREE.Plane(new THREE.Vector3(0, 0, -1), zMaxW));
-    }
-
-    mat.clippingPlanes = planes;
-    mat.needsUpdate = true;
-  }
 
   function saveViewPreset(id: number) {
     if (!cameraRef.current || !controlsRef.current) return;
@@ -281,7 +189,10 @@ export default function Scene3D() {
     dir.position.set(1, 1, 1);
     scene.add(dir);
     lightRef.current = dir;
-    scene.add(new THREE.AmbientLight(0xffffff, 0.15));
+    
+    const ambient = new THREE.AmbientLight(0xffffff, 0.15);
+    scene.add(ambient);
+    ambientLightRef.current = ambient;
 
     const axes = new THREE.AxesHelper(1);
     scene.add(axes);
@@ -297,6 +208,10 @@ export default function Scene3D() {
     axesCamera.position.set(0, 0, 2);
     const axesMini = new THREE.AxesHelper(0.8);
     axesScene.add(axesMini);
+    
+    axesSceneRef.current = axesScene;
+    axesCameraRef.current = axesCamera;
+    axesMiniRef.current = axesMini;
 
     const axesRenderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     axesRenderer.setSize(100, 100);
@@ -507,7 +422,7 @@ export default function Scene3D() {
         fitCameraToObject(camera, controls, points, 1.2);
 
         // применить clipping сразу
-        applyClipping();
+        applyClipping(rendererRef.current, pointsRef.current, bboxRef.current, clippingEnabled, { clipX, clipY, clipZ });
         
         dispatch({ type: 'ui/setLoadingProgress', payload: { progress: 100, message: 'Готово!' } });
         
@@ -634,8 +549,8 @@ export default function Scene3D() {
       
       // Ctrl+Click: set target
       if (e.ctrlKey) {
-        controls.target.copy(hit);
-        controls.update();
+      controls.target.copy(hit);
+      controls.update();
       }
     };
     renderer.domElement.addEventListener("click", onSingleClick);
@@ -679,14 +594,57 @@ export default function Scene3D() {
 
       controls.dispose();
       renderer.dispose();
+      
+      // Dispose point cloud
       if (pointsRef.current) {
         scene.remove(pointsRef.current);
         pointsRef.current.geometry.dispose();
         (pointsRef.current.material as THREE.Material)?.dispose?.();
       }
-      if (axesRef.current) scene.remove(axesRef.current);
-      if (gridRef.current) scene.remove(gridRef.current);
-      if (lightRef.current) scene.remove(lightRef.current);
+      
+      // Dispose helpers and lights
+      if (axesRef.current) {
+        scene.remove(axesRef.current);
+        axesRef.current.dispose();
+        axesRef.current = null;
+      }
+      if (gridRef.current) {
+        scene.remove(gridRef.current);
+        gridRef.current.dispose();
+        gridRef.current = null;
+      }
+      if (lightRef.current) {
+        scene.remove(lightRef.current);
+        lightRef.current.dispose();
+        lightRef.current = null;
+      }
+      if (ambientLightRef.current) {
+        scene.remove(ambientLightRef.current);
+        ambientLightRef.current.dispose();
+        ambientLightRef.current = null;
+      }
+      
+      // Dispose mini axes scene
+      if (axesMiniRef.current) {
+        axesSceneRef.current?.remove(axesMiniRef.current);
+        axesMiniRef.current.dispose();
+        axesMiniRef.current = null;
+      }
+      if (axesSceneRef.current) {
+        axesSceneRef.current.clear();
+        axesSceneRef.current = null;
+      }
+      if (axesCameraRef.current) {
+        axesCameraRef.current = null;
+      }
+      
+      // Dispose bbox helper if exists
+      if (bboxHelperRef.current) {
+        scene.remove(bboxHelperRef.current);
+        bboxHelperRef.current.geometry.dispose();
+        (bboxHelperRef.current.material as THREE.Material).dispose();
+        bboxHelperRef.current = null;
+      }
 
       mountRef.current?.removeChild(renderer.domElement);
       if (mountRef.current && axesRenderer.domElement.parentElement === mountRef.current) {
@@ -1185,30 +1143,39 @@ export default function Scene3D() {
     };
   }, [isEditMode, selectedIndices.length]);
 
-  // Обработчики для контекстного меню
-  const handleContextMenuDelete = () => {
+  // Обработчики для контекстного меню (мемоизированы для оптимизации)
+  const handleContextMenuDelete = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-delete-selected"));
-  };
+  }, []);
 
-  const handleContextMenuHide = () => {
+  const handleContextMenuHide = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-hide-selected"));
-  };
+  }, []);
 
-  const handleContextMenuIsolate = () => {
+  const handleContextMenuIsolate = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-isolate-selected"));
-  };
+  }, []);
 
-  const handleContextMenuInvert = () => {
+  const handleContextMenuInvert = useCallback(() => {
     const points = pointsRef.current;
     if (points && points.geometry) {
       const totalCount = points.geometry.attributes.position.count;
       dispatch(invertSelection(totalCount));
     }
-  };
+  }, [dispatch]);
 
-  const handleContextMenuShowAll = () => {
+  const handleContextMenuShowAll = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-show-all"));
-  };
+  }, []);
+
+  // Мемоизация часто используемых значений
+  const selectedCount = useMemo(() => selectedIndices.length, [selectedIndices.length]);
+  const hasSelection = useMemo(() => selectedCount > 0, [selectedCount]);
+
+  // Обработчик очистки выделения (для QuickActionsToolbar)
+  const handleClearSelection = useCallback(() => {
+    dispatch(clearSelection());
+  }, [dispatch]);
 
   // Визуальная подсветка выделенных точек
   useEffect(() => {
@@ -1263,7 +1230,7 @@ export default function Scene3D() {
       dispatch(setCanUndo(true));
       
       // Удаляем точки
-      const newGeometry = deleteSelectedPoints(points.geometry, selectedIndices);
+      const newGeometry = deleteSelectedPoints(points.geometry, new Set(selectedIndices));
       points.geometry.dispose();
       points.geometry = newGeometry;
       
@@ -1385,6 +1352,9 @@ export default function Scene3D() {
       bboxHelperRef.current = helper;
     } else if (!showBBox && bboxHelperRef.current) {
       scene.remove(bboxHelperRef.current);
+      // Dispose geometry to prevent memory leak
+      bboxHelperRef.current.geometry.dispose();
+      (bboxHelperRef.current.material as THREE.Material).dispose();
       bboxHelperRef.current = null;
     }
   }, [showBBox]);
@@ -1482,7 +1452,7 @@ export default function Scene3D() {
 
   // реакция на изменения clipping UI
   useEffect(() => {
-    applyClipping();
+    applyClipping(rendererRef.current, pointsRef.current, bboxRef.current, clippingEnabled, { clipX, clipY, clipZ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clippingEnabled, clipX, clipY, clipZ]);
 
@@ -1853,13 +1823,13 @@ export default function Scene3D() {
 
       {/* Контекстное меню для выделения */}
       <QuickActionsToolbar
-        visible={isEditMode && selectedIndices.length > 0}
-        selectedCount={selectedIndices.length}
+        visible={isEditMode && hasSelection}
+        selectedCount={selectedCount}
         onDelete={handleContextMenuDelete}
         onHide={handleContextMenuHide}
         onIsolate={handleContextMenuIsolate}
         onInvert={handleContextMenuInvert}
-        onClear={() => dispatch(clearSelection())}
+        onClear={handleClearSelection}
       />
       
       <SelectionContextMenu

@@ -86,7 +86,7 @@ const HOTKEYS: HotkeyCategory[] = [
   },
 ];
 
-export default function HotkeysModal({ opened, onClose }: HotkeysModalProps) {
+const HotkeysModal = React.memo(({ opened, onClose }: HotkeysModalProps) => {
   return (
     <Modal
       opened={opened}
@@ -150,5 +150,9 @@ export default function HotkeysModal({ opened, onClose }: HotkeysModalProps) {
       </Stack>
     </Modal>
   );
-}
+});
+
+HotkeysModal.displayName = 'HotkeysModal';
+
+export default HotkeysModal;
 
