@@ -130,7 +130,7 @@
 
 ```bash
 # Клонируйте репозиторий
-git clone https://github.com/your-org/LidarCleaner.git
+git clone https://github.com/qquerellka/LidarCleaner.git
 cd LidarCleaner
 
 # Запустите приложение
