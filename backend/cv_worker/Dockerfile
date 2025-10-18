@@ -112,22 +112,26 @@ RUN pip install --no-cache-dir \
         matplotlib==3.8.4 \
         scipy==1.13.1 \
         open3d==0.18.0 \
-        psutil==6.0.0
+        psutil==6.0.0 \
+        pandas==2.2.2
 
 # Копируем приложение
 WORKDIR /app
 COPY worker.py .
 COPY best_model.pth .
+COPY seg_model_10.pth .
 COPY Pointnet_Pointnet2_pytorch ./Pointnet_Pointnet2_pytorch
 RUN mkdir -p /tmp/files
 
 # Устанавливаем переменные окружения для оптимизации памяти
 ENV PYTHONUNBUFFERED=1
-ENV OMP_NUM_THREADS=2
-ENV MKL_NUM_THREADS=2
-ENV NUMEXPR_NUM_THREADS=2
+ENV OMP_NUM_THREADS=1
+ENV MKL_NUM_THREADS=1
+ENV NUMEXPR_NUM_THREADS=1
+ENV OPENBLAS_NUM_THREADS=1
 
 # Ограничиваем использование памяти Python
 ENV PYTHONHASHSEED=0
+ENV PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:128
 
 CMD ["python", "-u", "worker.py"]
