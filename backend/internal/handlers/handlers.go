@@ -119,7 +119,7 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 
 	// Подключаемся к RabbitMQ
 	conn, err := amqp.DialConfig(os.Getenv("RABBITMQ_URL"), amqp.Config{
-		Heartbeat: 10 * time.Minute, // Увеличить heartbeat
+		Heartbeat: 200 * time.Minute, // Увеличить heartbeat
 	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, errors.ErrorResponse{
@@ -254,4 +254,54 @@ func (h *Handler) GetFileByIDAsync(c *gin.Context) {
 			return
 		}
 	}
+}
+
+func (h *Handler) CancelProcessing(c *gin.Context) {
+	// лучше взять RABBITMQ_URL из окружения
+	conn, err := amqp.DialConfig(os.Getenv("RABBITMQ_URL"), amqp.Config{})
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer conn.Close()
+
+	ch, err := conn.Channel()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer ch.Close()
+
+	// убедимся, что очередь существует (durable)
+	_, err = ch.QueueDeclare(
+		"cancel_queue", // name
+		true,           // durable
+		false,          // delete when unused
+		false,          // exclusive
+		false,          // no-wait
+		nil,            // args
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	body := []byte("cancel")
+	err = ch.Publish(
+		"",             // exchange
+		"cancel_queue", // routing key (queue name)
+		false,          // mandatory
+		false,          // immediate
+		amqp.Publishing{
+			ContentType:  "text/plain",
+			Body:         body,
+			DeliveryMode: amqp.Persistent, // 2 => persistent
+		},
+	)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Cancel sent"})
 }

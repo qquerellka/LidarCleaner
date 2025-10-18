@@ -13,6 +13,7 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 	{
 		minioRoutes.POST("/upload_file", h.CreateOne)
 		minioRoutes.POST("/download", h.GetFileByIDAsync)
+		minioRoutes.POST("/cancel", h.CancelProcessing)
 
 	}
 
