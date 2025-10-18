@@ -31,7 +31,7 @@ export default function Home() {
         }}>
           LidarCleaner
         </Title>
-        <Group gap="xs">
+        <Group gap="md">
           <Tooltip label={colorScheme === 'dark' ? 'Светлая тема' : 'Тёмная тема'} position="bottom">
             <ActionIcon 
               size="lg" 

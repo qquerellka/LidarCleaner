@@ -35,8 +35,12 @@ npm run preview
 
 ### Production
 
-- `npm run preview` - Preview production build
-- `npm run package` - Create distributable (AppImage, DMG, EXE)
+- `npm run preview` - Preview production build (with --no-sandbox for dev)
+- `npm run dist` - Create distributable packages for current platform
+- `npm run dist:linux` - Create all Linux packages (AppImage, deb, rpm)
+- `npm run dist:appimage` - Create AppImage (recommended for Linux)
+- `npm run dist:deb` - Create .deb package (Ubuntu/Debian)
+- `npm run dist:rpm` - Create .rpm package (Fedora/RHEL)
 
 ### Code Quality
 
@@ -121,26 +125,53 @@ Use launch configuration:
 
 ## 📦 Packaging
 
-### Linux (AppImage)
+### Quick Start
 
 ```bash
-npm run package
-# Output: dist/LidarCleaner-*.AppImage
+# Install dependencies
+npm install
+
+# Build all Linux packages
+npm run dist:linux
 ```
 
-### Windows (EXE)
+Output in `dist/`:
+- `LidarCleaner-*.AppImage` - Universal (recommended)
+- `LidarCleaner-*.deb` - Ubuntu/Debian
+- `LidarCleaner-*.rpm` - Fedora/RHEL
+
+### Linux Formats
+
+**AppImage (recommended):**
+```bash
+npm run dist:appimage
+chmod +x dist/LidarCleaner-*.AppImage
+./dist/LidarCleaner-*.AppImage
+```
+
+**Debian/Ubuntu (.deb):**
+```bash
+npm run dist:deb
+sudo dpkg -i dist/LidarCleaner-*.deb
+```
+
+**Fedora/RHEL (.rpm):**
+```bash
+npm run dist:rpm
+sudo rpm -i dist/LidarCleaner-*.rpm
+```
+
+### Docker Build (alternative)
 
 ```bash
-npm run package
-# Output: dist/LidarCleaner-Setup-*.exe
+# Using Makefile
+make docker-dist-all      # All formats
+make docker-dist-appimage # AppImage only
+make docker-dist-deb      # .deb only
+make docker-dist-rpm      # .rpm only
 ```
 
-### macOS (DMG)
-
-```bash
-npm run package
-# Output: dist/LidarCleaner-*.dmg
-```
+📖 **Detailed guide:** See [PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)
 
 ## 🔗 Environment Variables
 
@@ -156,7 +187,27 @@ npm run package
 
 ## 🐛 Troubleshooting
 
-See [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) for common issues.
+### Sandbox error on Linux
+
+**Error:** `The SUID sandbox helper binary was found, but is not configured correctly`
+
+**Solution for development:**
+```bash
+# Already fixed in package.json
+npm run dev  # uses --no-sandbox flag
+```
+
+**Solution for production:**
+```bash
+# Build proper packages (sandbox configured automatically)
+npm run dist:appimage
+```
+
+📖 **More info:** See [PRODUCTION_BUILD.md](./PRODUCTION_BUILD.md)
+
+### Other issues
+
+See [TROUBLESHOOTING.md](../TROUBLESHOOTING.md) for more common issues.
 
 ## 📄 License
 
