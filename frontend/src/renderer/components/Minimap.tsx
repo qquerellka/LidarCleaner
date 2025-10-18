@@ -8,7 +8,7 @@ interface MinimapProps {
   onCameraMove?: (x: number, z: number) => void;
 }
 
-export default function Minimap({ visible, mainCamera, pointCloud, onCameraMove }: MinimapProps) {
+const Minimap = React.memo(({ visible, mainCamera, pointCloud, onCameraMove }: MinimapProps) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
@@ -174,5 +174,9 @@ export default function Minimap({ visible, mainCamera, pointCloud, onCameraMove 
       </div>
     </div>
   );
-}
+});
+
+Minimap.displayName = 'Minimap';
+
+export default Minimap;
 

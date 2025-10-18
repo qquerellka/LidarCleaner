@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState, useMemo, useCallback } from "react";
 import * as THREE from "three";
 import { PCDLoader } from "three/examples/jsm/loaders/PCDLoader.js";
 import { PLYLoader } from "three/examples/jsm/loaders/PLYLoader.js";
@@ -1185,30 +1185,39 @@ export default function Scene3D() {
     };
   }, [isEditMode, selectedIndices.length]);
 
-  // Обработчики для контекстного меню
-  const handleContextMenuDelete = () => {
+  // Обработчики для контекстного меню (мемоизированы для оптимизации)
+  const handleContextMenuDelete = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-delete-selected"));
-  };
+  }, []);
 
-  const handleContextMenuHide = () => {
+  const handleContextMenuHide = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-hide-selected"));
-  };
+  }, []);
 
-  const handleContextMenuIsolate = () => {
+  const handleContextMenuIsolate = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-isolate-selected"));
-  };
+  }, []);
 
-  const handleContextMenuInvert = () => {
+  const handleContextMenuInvert = useCallback(() => {
     const points = pointsRef.current;
     if (points && points.geometry) {
       const totalCount = points.geometry.attributes.position.count;
       dispatch(invertSelection(totalCount));
     }
-  };
+  }, [dispatch]);
 
-  const handleContextMenuShowAll = () => {
+  const handleContextMenuShowAll = useCallback(() => {
     window.dispatchEvent(new CustomEvent("edit-show-all"));
-  };
+  }, []);
+
+  // Мемоизация часто используемых значений
+  const selectedCount = useMemo(() => selectedIndices.length, [selectedIndices.length]);
+  const hasSelection = useMemo(() => selectedCount > 0, [selectedCount]);
+
+  // Обработчик очистки выделения (для QuickActionsToolbar)
+  const handleClearSelection = useCallback(() => {
+    dispatch(clearSelection());
+  }, [dispatch]);
 
   // Визуальная подсветка выделенных точек
   useEffect(() => {
@@ -1853,13 +1862,13 @@ export default function Scene3D() {
 
       {/* Контекстное меню для выделения */}
       <QuickActionsToolbar
-        visible={isEditMode && selectedIndices.length > 0}
-        selectedCount={selectedIndices.length}
+        visible={isEditMode && hasSelection}
+        selectedCount={selectedCount}
         onDelete={handleContextMenuDelete}
         onHide={handleContextMenuHide}
         onIsolate={handleContextMenuIsolate}
         onInvert={handleContextMenuInvert}
-        onClear={() => dispatch(clearSelection())}
+        onClear={handleClearSelection}
       />
       
       <SelectionContextMenu

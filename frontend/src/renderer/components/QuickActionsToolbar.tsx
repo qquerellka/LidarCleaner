@@ -12,7 +12,7 @@ interface QuickActionsToolbarProps {
   onClear: () => void;
 }
 
-export default function QuickActionsToolbar({
+const QuickActionsToolbar = React.memo(({
   visible,
   selectedCount,
   onDelete,
@@ -20,7 +20,7 @@ export default function QuickActionsToolbar({
   onIsolate,
   onInvert,
   onClear,
-}: QuickActionsToolbarProps) {
+}: QuickActionsToolbarProps) => {
   if (!visible) return null;
 
   return (
@@ -101,5 +101,9 @@ export default function QuickActionsToolbar({
       </Group>
     </Paper>
   );
-}
+});
+
+QuickActionsToolbar.displayName = 'QuickActionsToolbar';
+
+export default QuickActionsToolbar;
 
