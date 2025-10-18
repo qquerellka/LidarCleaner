@@ -68,3 +68,4 @@ export function applyClipping(
   mat.needsUpdate = true;
 }
 
+

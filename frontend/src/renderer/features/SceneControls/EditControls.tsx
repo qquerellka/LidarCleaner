@@ -8,7 +8,7 @@ import { setEditMode, clearSelection, invertSelection, setBrushMode, setBrushRad
 export default function EditControls() {
   const dispatch = useDispatch();
   const { isEditMode, selectedIndices, hiddenIndices, selectionStats, brushMode, brushRadius, canUndo } = useSelector((s: RootState) => s.edit);
-  const { filePath, pointCount } = useSelector((s: RootState) => s.ui);
+  const { filePath, pointCount, isAutoProcessing } = useSelector((s: RootState) => s.ui);
 
   const selectedCount = selectedIndices.length;
   const hiddenCount = hiddenIndices.length;
@@ -72,7 +72,7 @@ export default function EditControls() {
           <Switch
             checked={isEditMode}
             onChange={(e) => toggleEditMode(e.currentTarget.checked)}
-            disabled={!hasFile}
+            disabled={!hasFile || isAutoProcessing}
             label=""
             size="sm"
           />
@@ -84,7 +84,13 @@ export default function EditControls() {
           </Text>
         )}
 
-        {isEditMode && hasFile && (
+        {hasFile && isAutoProcessing && (
+          <Text size="xs" c="yellow" ta="center">
+            Редактирование недоступно во время автообработки
+          </Text>
+        )}
+
+        {isEditMode && hasFile && !isAutoProcessing && (
           <>
             {/* Секция: Статистика */}
             <Paper withBorder p="xs">

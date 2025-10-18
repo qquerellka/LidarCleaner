@@ -1,13 +1,15 @@
 // src/renderer/features/SceneControls/AutoCleanButton.tsx
 import React, { useState, useEffect, useRef } from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { Button, Text, Paper, Stack, Progress } from "@mantine/core";
-import { IconSparkles, IconAlertCircle } from "@tabler/icons-react";
+import { Button, Text, Paper, Stack, Progress, Group } from "@mantine/core";
+import { IconSparkles, IconAlertCircle, IconX } from "@tabler/icons-react";
 import type { RootState } from "../../store";
-import { setFilePath } from "../../store/uiSlice";
+import { setFilePath, setAutoProcessing } from "../../store/uiSlice";
+import { setEditMode } from "../../store/editSlice";
 import {
   showErrorWithDetails,
   showSuccessNotification,
+  showWarningNotification,
 } from "../../utils/notifications";
 
 // Умный фейковый прогресс
@@ -116,6 +118,7 @@ export default function AutoCleanButton() {
         setProgress(null);
         setCurrentTaskId(null);
         currentTaskIdRef.current = null;
+        dispatch(setAutoProcessing(false));
         dispatch(setFilePath(payload.path));
       }, 500);
     });
@@ -129,6 +132,7 @@ export default function AutoCleanButton() {
       setProgress(null);
       setCurrentTaskId(null);
       currentTaskIdRef.current = null;
+      dispatch(setAutoProcessing(false));
     });
 
     return () => {
@@ -140,11 +144,16 @@ export default function AutoCleanButton() {
 
   const onClick = async () => {
     if (!filePath) return;
+    
+    // Отключаем режим редактирования перед началом автообработки
+    dispatch(setEditMode(false));
+    
     setBusy(true);
     setProgress(null);
     setFakeProgress(0);
     setHasRealProgress(false);
     setTimeElapsed(0);
+    dispatch(setAutoProcessing(true));
     
     try {
       // Получаем taskId и ждем события process-done
@@ -157,6 +166,29 @@ export default function AutoCleanButton() {
       setProgress(null);
       setFakeProgress(0);
       setHasRealProgress(false);
+      dispatch(setAutoProcessing(false));
+    }
+  };
+
+  const onCancel = async () => {
+    if (!currentTaskId) return;
+    
+    try {
+      const result = await window.api.backendCancelProcess(currentTaskId);
+      if (result.ok) {
+        showWarningNotification('Обработка отменена', 'Отмена');
+        setBusy(false);
+        setProgress(null);
+        setCurrentTaskId(null);
+        currentTaskIdRef.current = null;
+        setFakeProgress(0);
+        setHasRealProgress(false);
+        dispatch(setAutoProcessing(false));
+      } else {
+        showErrorWithDetails(result.message || 'Не удалось отменить', 'Ошибка отмены');
+      }
+    } catch (e) {
+      showErrorWithDetails(e, 'Не удалось отменить обработку');
     }
   };
 
@@ -174,18 +206,42 @@ export default function AutoCleanButton() {
   return (
     <Paper p="md" withBorder>
       <Stack gap="sm">
-        <Button
-          onClick={onClick}
-          disabled={!canRun}
-          loading={busy}
-          leftSection={<IconSparkles size={18} />}
-          fullWidth
-          size="md"
-          variant="gradient"
-          gradient={{ from: "cyan", to: "blue", deg: 90 }}
-        >
-          {busy ? "Обработка..." : "Удалить динамику"}
-        </Button>
+        {!busy ? (
+          <Button
+            onClick={onClick}
+            disabled={!canRun}
+            leftSection={<IconSparkles size={18} />}
+            fullWidth
+            size="md"
+            variant="gradient"
+            gradient={{ from: "cyan", to: "blue", deg: 90 }}
+          >
+            Удалить динамику
+          </Button>
+        ) : (
+          <Group gap="xs">
+            <Button
+              disabled
+              loading
+              leftSection={<IconSparkles size={18} />}
+              size="md"
+              variant="gradient"
+              gradient={{ from: "cyan", to: "blue", deg: 90 }}
+              style={{ flex: 1 }}
+            >
+              Обработка...
+            </Button>
+            <Button
+              onClick={onCancel}
+              size="md"
+              color="red"
+              variant="light"
+              leftSection={<IconX size={18} />}
+            >
+              Отмена
+            </Button>
+          </Group>
+        )}
         
         {busy && (
           <Stack gap={4}>
