@@ -1,3 +1,4 @@
+# обновлённый файл обработчика (замените старый)
 import json
 import time
 import uuid
@@ -45,14 +46,15 @@ class RobustRabbitMQClient:
         try:
             parameters = pika.ConnectionParameters(
                 host='rabbitmq',
-                heartbeat=7200,  # 10 минут
-                blocked_connection_timeout=7200,
+                heartbeat=600,  # 10 минут
+                blocked_connection_timeout=300,
                 connection_attempts=3,
                 retry_delay=5
             )
             self.connection = pika.BlockingConnection(parameters)
             self.channel = self.connection.channel()
 
+            # exchange + очередь для задач
             self.channel.exchange_declare(
                 exchange="pcd_files",
                 exchange_type="fanout",
@@ -60,6 +62,9 @@ class RobustRabbitMQClient:
             )
             self.channel.queue_declare(queue="file_metadata_queue", durable=True)
             self.channel.queue_bind(exchange="pcd_files", queue="file_metadata_queue")
+
+            # очередь для отмен
+            self.channel.queue_declare(queue="cancel_queue", durable=True)
 
             logger.info("Connected to RabbitMQ successfully")
             return True
@@ -106,6 +111,9 @@ rabbitmq_client = RobustRabbitMQClient()
 # Глобальная модель для переиспользования
 global_model = None
 global_device = None
+
+class TaskCancelledException(Exception):
+    pass
 
 def check_memory_usage():
     """Упрощенная проверка памяти без psutil"""
@@ -155,7 +163,7 @@ def safe_model_load(model_path, device):
 def get_or_load_model(model_path, device):
     """Получить или загрузить модель (переиспользование)"""
     global global_model, global_device
-    
+
     if global_model is None or global_device != device:
         logger.info("Loading model...")
         global_model = get_model(num_classes=2).to(device)
@@ -164,22 +172,80 @@ def get_or_load_model(model_path, device):
         global_device = device
         optimize_memory()
         logger.info("Model loaded and cached")
-    
+
     return global_model
+
+def check_cancel_for_task(channel, cancel_queue, task_id):
+    """
+    Проверяет cancel_queue. Возвращает True, если нужно отменить текущую задачу.
+    Поддерживает:
+      - сообщения JSON {"id": "..."} (сравниваем с task_id)
+      - сообщения без id (любой payload) -> глобальная отмена
+      - текстовые сообщения 'cancel', 'stop' и т.п.
+    """
+    if channel is None:
+        return False
+    try:
+        while True:
+            method_frame, header_frame, body = channel.basic_get(cancel_queue, auto_ack=True)
+            if method_frame is None:
+                break
+            # попробуем JSON
+            try:
+                msg = json.loads(body)
+                if isinstance(msg, dict):
+                    # если есть id — сравниваем
+                    if 'id' in msg:
+                        if msg.get('id') == task_id:
+                            logger.info(f"Cancellation for id {task_id} received")
+                            return True
+                        else:
+                            # not ours -> ignore
+                            continue
+                    else:
+                        # JSON но без id -> глобальная отмена
+                        logger.info("Cancel message without id -> treat as global cancel")
+                        return True
+                else:
+                    # JSON, но не dict -> treat as cancel
+                    logger.info("Cancel message (non-dict JSON) -> treat as global cancel")
+                    return True
+            except Exception:
+                # не JSON: проверим текст
+                try:
+                    text = body.decode() if isinstance(body, (bytes, bytearray)) else str(body)
+                except Exception:
+                    text = str(body)
+                if text.strip().lower() in ("cancel", "stop", "kill"):
+                    logger.info("Cancel text message received -> global cancel")
+                    return True
+                # иначе игнорируем (можно логировать)
+                logger.info(f"Ignoring unknown cancel payload: {text}")
+                continue
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to check cancel queue: {e}")
+        return False
+
 
 def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_path=None,
                                           threshold=0.5, device=('cuda' if torch.cuda.is_available() else "cpu"), voxel_size=0.1,
                                           use_downsample=True, edge_distance_threshold=6.0,
-                                          z_upper_static_threshold=6.5, ground_height_threshold=0.55, grid_divisions=25):
+                                          z_upper_static_threshold=6.5, ground_height_threshold=0.55, grid_divisions=25,
+                                          check_cancel_callback=None):
+    """
+    Добавлен аргумент check_cancel_callback() -> bool:
+    если он задан и возвращает True — выбрасываем TaskCancelledException
+    """
     model = get_or_load_model(model_path, device)
 
     pcd = o3d.io.read_point_cloud(ply_file_path)
 
     if use_downsample:
         pcd = pcd.voxel_down_sample(voxel_size)
-        print(f"Downsample включён, voxel_size={voxel_size}")
+        logger.info(f"Downsample включён, voxel_size={voxel_size}")
     else:
-        print("Downsample отключён")
+        logger.info("Downsample отключён")
 
     pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=30))
 
@@ -187,8 +253,8 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
     colors = np.asarray(pcd.colors) if pcd.has_colors() else np.ones((len(points), 3)) * 0.5
     normals = np.asarray(pcd.normals)
 
-    print(f"Загружено точек после препроцессинга: {len(points)}")
-    print(f"Используемый порог: {threshold}")
+    logger.info(f"Загружено точек после препроцессинга: {len(points)}")
+    logger.info(f"Используемый порог: {threshold}")
 
     # Адаптивный размер батча в зависимости от размера файла
     if len(points) > 1000000:
@@ -205,6 +271,17 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
     total_batches = (len(points) + batch_size - 1) // batch_size
 
     for batch_idx in range(total_batches):
+        # -- проверяем отмену *перед* обработкой батча --
+        if check_cancel_callback is not None:
+            try:
+                if check_cancel_callback():
+                    logger.info(f"Cancellation detected before batch {batch_idx+1}/{total_batches}")
+                    raise TaskCancelledException()
+            except TaskCancelledException:
+                raise
+            except Exception as e:
+                logger.warning(f"check_cancel_callback failed: {e}")
+
         start_idx = batch_idx * batch_size
         end_idx = min((batch_idx + 1) * batch_size, len(points))
 
@@ -249,8 +326,7 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
 
     pred_labels = (all_dynamic_probs > threshold).astype(int)
 
-
-    # статика для земли
+    # ---------- (далее без изменений логики пост-обработки) ----------
     min_x, min_y = np.min(points[:, 0]), np.min(points[:, 1])
     max_x, max_y = np.max(points[:, 0]), np.max(points[:, 1])
 
@@ -326,15 +402,7 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
         for i in cell_points[cell]:
             is_boundary[i] = True
 
-    # Для спорных точек
     non_ground_dynamic_idx = np.where((pred_labels == 1) & (~ground_mask))[0]
-    # if len(non_ground_dynamic_idx) > 0 and np.sum(is_boundary) > 0:
-    #     boundary_idx = np.where(is_boundary)[0]
-    #     boundary_tree = KDTree(points[boundary_idx, :2])
-    #     dists_to_boundary, _ = boundary_tree.query(points[non_ground_dynamic_idx, :2])
-    #     edge_mask = dists_to_boundary < edge_distance_threshold
-    #     pred_labels[non_ground_dynamic_idx[edge_mask]] = 0 #2
-    #     # print(f"Спорных точек определено: {np.sum(edge_mask)}")
 
     if len(non_ground_dynamic_idx) > 0 and np.sum(is_boundary) > 0:
       boundary_idx = np.where(is_boundary)[0]
@@ -351,8 +419,8 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
         upper_mask = points[:, 2] > (min_z + z_upper_static_threshold)
         pred_labels[upper_mask] = 2
 
-    print(f"Статических точек: {np.sum(pred_labels == 0)}")
-    print(f"Динамических точек: {np.sum(pred_labels == 1)}")
+    logger.info(f"Статических точек: {np.sum(pred_labels == 0)}")
+    logger.info(f"Динамических точек: {np.sum(pred_labels == 1)}")
 
     static_mask = (pred_labels == 0) | (pred_labels == 2)
     points_static = points[static_mask]
@@ -367,19 +435,21 @@ def remove_dynamic_points_with_threshold(ply_file_path, model_path, output_file_
         output_file_path = f"{base_name}_threshold_{threshold}.ply"
 
     o3d.io.write_point_cloud(output_file_path, visualized_pcd)
-    print(f"Результат сохранен в: {output_file_path}")
-    
+    logger.info(f"Результат сохранен в: {output_file_path}")
+
     # Финальная очистка памяти
     del pcd, points, colors, normals, all_dynamic_probs, pred_labels, visualized_pcd
     optimize_memory()
-    
+
     # ВАЖНО: возвращаем путь к обработанному файлу
     return output_file_path
 
-def process_file_safe(data):
-    """Безопасная обработка файла"""
+def process_file_safe(data, delivery_tag=None, reply_to=None, correlation_id=None):
+    """Безопасная обработка файла. Принимает delivery_tag, reply_to и correlation_id для ответа/ack."""
     input_path = None
     output_path = None
+
+    task_id = data.get('id', 'unknown')
 
     try:
         logger.info("Starting file processing")
@@ -387,7 +457,6 @@ def process_file_safe(data):
 
         minio_key = data['minio_key']
         filename = data['filename']
-        task_id = data.get('id', 'unknown')
 
         model_path = "best_model.pth"
         if not os.path.exists(model_path):
@@ -407,20 +476,30 @@ def process_file_safe(data):
 
         file_size = os.path.getsize(input_path) / (1024 * 1024)
         logger.info(f"File size: {file_size:.2f} MB")
-        
+
         # Проверяем доступную память перед обработкой
         available_memory = check_memory_usage()
-        if available_memory and available_memory < 500000:  # Меньше 500MB
+        if available_memory and available_memory < 500000:  # Меньше ~500MB
             logger.warning(f"Low memory detected: {available_memory} kB")
             optimize_memory()
 
-        # Обработка
+        # Определяем callback для проверки отмены (замыкание)
+        def cancel_check():
+            # использование rabbitmq_client.channel для basic_get на cancel_queue
+            try:
+                return check_cancel_for_task(rabbitmq_client.channel, "cancel_queue", task_id)
+            except Exception as e:
+                logger.warning(f"cancel_check failed: {e}")
+                return False
+
+        # Обработка (передаём check_cancel_callback)
         result_path = remove_dynamic_points_with_threshold(
             input_path,
             model_path,
             voxel_size=0.05,
             output_file_path=output_path,
-            threshold=0.4
+            threshold=0.4,
+            check_cancel_callback=cancel_check
         )
 
         if not os.path.exists(result_path):
@@ -432,6 +511,7 @@ def process_file_safe(data):
 
         result_data = data.copy()
         result_data['minio_key'] = new_key
+        result_data['status'] = 'done'
 
         # Очистка временных файлов
         for path in [input_path, output_path]:
@@ -446,8 +526,21 @@ def process_file_safe(data):
 
         return result_data
 
+    except TaskCancelledException:
+        logger.info(f"Task {task_id} was cancelled during processing.")
+        # очистка временных файлов при отмене
+        for path in [input_path, output_path]:
+            if path and os.path.exists(path):
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+        # Вернём специальный ответ для callback
+        return {'id': task_id, 'status': 'cancelled', 'minio_key': data.get('minio_key', '')}
+
     except Exception as e:
         logger.error(f"Error in process_file: {e}")
+        logger.error(traceback.format_exc())
         # Очистка при ошибке
         for path in [input_path, output_path]:
             if path and os.path.exists(path):
@@ -458,7 +551,7 @@ def process_file_safe(data):
         raise
 
 def callback(ch, method, properties, body):
-    """Callback с улучшенной обработкой ошибок"""
+    """Callback с улучшенной обработкой ошибок и поддержкой отмен."""
     global rabbitmq_client
 
     delivery_tag = method.delivery_tag
@@ -467,19 +560,13 @@ def callback(ch, method, properties, body):
 
     try:
         logger.info(" [x] Received message")
-
-        # Немедленно подтверждаем получение сообщения
-        if not rabbitmq_client.safe_ack(delivery_tag):
-            logger.warning("Failed to ack message, but continuing processing")
-
-        # Парсим данные
         data = json.loads(body)
         logger.info(f"Processing task ID: {data.get('id', 'unknown')}")
 
-        # Обрабатываем файл
-        processed_data = process_file_safe(data)
+        # ВАЖНО: НЕ делаем ack сразу. Ack будет в конце — после успешной обработки или после отмены.
+        processed_data = process_file_safe(data, delivery_tag=delivery_tag, reply_to=reply_to, correlation_id=correlation_id)
 
-        # Отправляем результат
+        # Отправляем результат (включая cancelled)
         logger.info("Sending result back")
         success = rabbitmq_client.safe_publish(
             routing_key=reply_to,
@@ -488,24 +575,38 @@ def callback(ch, method, properties, body):
         )
 
         if success:
-            logger.info(" [x] Processing completed successfully")
+            logger.info(" [x] Processing completed successfully (or cancelled)")
+            # теперь ack исходное сообщение — задача полностью обработана (включая отмену)
+            if not rabbitmq_client.safe_ack(delivery_tag):
+                logger.warning("Failed to ack message after processing")
         else:
             logger.error(" [x] Processing completed but failed to send result")
+            # В этом случае можно решить: ack или не ack? Оставим не-ack, чтобы upstream мог переотправить.
+            # rabbitmq_client.safe_ack(delivery_tag)
 
     except Exception as e:
         logger.error(f"Error in callback: {e}")
         logger.error(traceback.format_exc())
 
-        # Отправляем ошибку
-        error_response = {
-            'error': str(e),
-            'minio_key': data.get('minio_key', '') if 'data' in locals() else ''
-        }
-        rabbitmq_client.safe_publish(
-            routing_key=reply_to,
-            body=json.dumps(error_response),
-            correlation_id=correlation_id
-        )
+        # Попробуем отправить ошибку (если data доступна)
+        try:
+            error_response = {
+                'error': str(e),
+                'minio_key': data.get('minio_key', '') if 'data' in locals() else ''
+            }
+            rabbitmq_client.safe_publish(
+                routing_key=reply_to or '',
+                body=json.dumps(error_response),
+                correlation_id=correlation_id
+            )
+        except Exception as pub_err:
+            logger.warning(f"Failed to publish error response: {pub_err}")
+
+        # Наконец, ack чтобы не застрять в очереди (или можно сделать requeue)
+        try:
+            rabbitmq_client.safe_ack(delivery_tag)
+        except Exception:
+            pass
 
 def main():
     """Основная функция с обработкой ошибок"""
@@ -528,6 +629,9 @@ def main():
         if not rabbitmq_client.connect():
             logger.error("Failed to connect to RabbitMQ, exiting")
             sys.exit(1)
+
+        # QoS: брать по одной задаче — чтобы не забирать N задач сразу
+        rabbitmq_client.channel.basic_qos(prefetch_count=1)
 
         # Начинаем потребление сообщений
         logger.info('Waiting for messages...')
