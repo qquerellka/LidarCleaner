@@ -77,7 +77,92 @@ if command -v node &> /dev/null; then
 fi
 
 check_command "npm" "npm"
+
+if ! command -v npm &> /dev/null; then
+    echo -e "${YELLOW}📦 Для установки npm на Ubuntu/Debian:${NC}"
+    echo -e "   ${BLUE}sudo apt-get update${NC}"
+    echo -e "   ${BLUE}sudo apt-get install -y npm${NC}"
+    echo ""
+    echo -e "${YELLOW}💡 Или через NodeSource (рекомендуется):${NC}"
+    echo -e "   ${BLUE}curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash -${NC}"
+    echo -e "   ${BLUE}sudo apt-get install -y nodejs${NC}"
+fi
 echo ""
+
+# Проверка зависимостей Electron (только для Linux)
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    echo -e "${YELLOW}Проверка зависимостей Electron (Linux):${NC}"
+    
+    # Список критичных библиотек для Electron
+    ELECTRON_LIBS=(
+        "libgbm.so:libgbm1"
+        "libgtk-3.so:libgtk-3-0"
+        "libnss3.so:libnss3"
+        "libXss.so:libxss1"
+        "libXtst.so:libxtst6"
+    )
+    
+    ELECTRON_MISSING=()
+    
+    for lib_info in "${ELECTRON_LIBS[@]}"; do
+        lib_name="${lib_info%%:*}"
+        pkg_name="${lib_info##*:}"
+        
+        if ldconfig -p 2>/dev/null | grep -q "$lib_name"; then
+            echo -e "${GREEN}✓${NC} $pkg_name установлен"
+        else
+            echo -e "${RED}✗${NC} $pkg_name не найден"
+            ELECTRON_MISSING+=("$pkg_name")
+            ALL_OK=false
+        fi
+    done
+    
+    # Проверка D-Bus
+    if command -v dbus-daemon &> /dev/null; then
+        echo -e "${GREEN}✓${NC} D-Bus установлен"
+    else
+        echo -e "${RED}✗${NC} D-Bus не найден"
+        ELECTRON_MISSING+=("dbus" "dbus-x11")
+        ALL_OK=false
+    fi
+    
+    # Проверка DISPLAY
+    if [ -n "$DISPLAY" ]; then
+        echo -e "${GREEN}✓${NC} DISPLAY установлен: $DISPLAY"
+    else
+        echo -e "${YELLOW}⚠${NC} DISPLAY не установлен (GUI может не работать)"
+        echo -e "   ${BLUE}Если используете SSH: ssh -X user@host${NC}"
+    fi
+    
+    # Проверка прав на electron binary (если установлен)
+    if [ -f "frontend/node_modules/electron/dist/electron" ]; then
+        if [ -x "frontend/node_modules/electron/dist/electron" ]; then
+            echo -e "${GREEN}✓${NC} Electron binary исполняемый"
+        else
+            echo -e "${YELLOW}⚠${NC} Electron binary не исполняемый"
+            echo -e "   ${BLUE}Исправить: chmod +x frontend/node_modules/electron/dist/electron${NC}"
+        fi
+        
+        # Проверка владельца
+        ELECTRON_OWNER=$(stat -c '%U' frontend/node_modules/electron/dist/electron)
+        if [ "$ELECTRON_OWNER" == "$USER" ]; then
+            echo -e "${GREEN}✓${NC} Права доступа к Electron в порядке"
+        else
+            echo -e "${YELLOW}⚠${NC} Electron установлен от пользователя: $ELECTRON_OWNER"
+            echo -e "   ${BLUE}Исправить: sudo chown -R \$USER:\$USER frontend/node_modules${NC}"
+        fi
+    fi
+    
+    # Вывод команды для установки недостающих пакетов
+    if [ ${#ELECTRON_MISSING[@]} -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}📦 Для установки недостающих зависимостей Electron:${NC}"
+        echo -e "   ${BLUE}sudo apt-get update${NC}"
+        echo -e "   ${BLUE}sudo apt-get install -y ${ELECTRON_MISSING[*]}${NC}"
+    fi
+    
+    echo ""
+fi
 
 # Проверка портов
 echo -e "${YELLOW}Проверка портов:${NC}"

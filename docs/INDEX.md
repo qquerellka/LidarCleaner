@@ -354,7 +354,7 @@
 | development/architecture.md | ✅ Complete | 2024-10-18 |
 | api/rest-api.md | ✅ Complete | 2024-10-18 |
 | development/development.md | ✅ Complete | 2024-10-18 |
-| user-guide/troubleshooting.md | ✅ Complete | 2024-10-18 |
+| user-guide/troubleshooting.md | ✅ Complete | 2024-10-19 |
 | user-guide/faq.md | ✅ Complete | 2024-10-18 |
 | CHANGELOG.md | ✅ Complete | 2024-10-18 |
 | LICENSE | ✅ Complete | 2024-10-18 |
