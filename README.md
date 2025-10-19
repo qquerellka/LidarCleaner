@@ -319,51 +319,9 @@ npm run dev
 
 ---
 
-## 🤝 Contributing
-
-Мы приветствуем вклад от сообщества! 
-
-**Полное руководство:** [docs/development/contributing.md](docs/development/contributing.md)
-
-**Быстрый старт:**
-1. Fork репозиторий
-2. Создайте feature branch
-3. Сделайте изменения
-4. Добавьте тесты
-5. Отправьте Pull Request
-
-**Для разработчиков:** [docs/development/development.md](docs/development/development.md)
-
----
-
 ## 📄 Лицензия
 
 Этот проект распространяется под лицензией **MIT**. Подробности в файле [LICENSE](LICENSE).
-
----
-
-## 👥 Авторы
-
-- **LidarCleaner Team** - [GitHub](https://github.com/lidarcleaner)
-
----
-
-## 🙏 Благодарности
-
-- [Three.js](https://threejs.org/) за отличную 3D библиотеку
-- [Electron](https://www.electronjs.org/) за desktop framework
-- [Mantine](https://mantine.dev/) за красивые UI компоненты
-- Всем contributors и тестировщикам
-
----
-
-## 📞 Контакты и поддержка
-
-- 🐛 **Issues**: [GitHub Issues](https://github.com/qquerellka/LidarCleaner/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/qquerellka/LidarCleaner/discussions)
-- 📚 **Документация**: [docs/INDEX.md](docs/INDEX.md)
-- ❓ **FAQ**: [docs/user-guide/faq.md](docs/user-guide/faq.md)
-
 ---
 
 [⬆ Наверх](#-lidarcleaner)
