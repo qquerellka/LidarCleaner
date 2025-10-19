@@ -66,7 +66,7 @@ function applyHeightColors(geo: THREE.BufferGeometry) {
 /**
  * Hook для управления режимом редактирования
  * Отвечает за:
- * - Box selection (Shift+Drag)
+ * - Box selection (Ctrl+Shift+Drag - выделение/добавление, Alt+Ctrl+Shift+Drag - вычитание)
  * - Удаление точек (Delete)
  * - Undo/Redo (Ctrl+Z)
  * - Блокировку камеры (Ctrl hold)

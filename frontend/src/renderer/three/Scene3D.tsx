@@ -542,15 +542,15 @@ export default function Scene3D() {
       const hit = intersects[0].point.clone();
       
       // Measurement mode: add point
-      if (measurementMode && !e.ctrlKey) {
+      if (measurementMode && !e.altKey) {
         dispatch(addMeasurementPoint({ x: hit.x, y: hit.y, z: hit.z }));
         return;
       }
       
-      // Ctrl+Click: set target
-      if (e.ctrlKey) {
-      controls.target.copy(hit);
-      controls.update();
+      // Alt+Click: set target
+      if (e.altKey) {
+        controls.target.copy(hit);
+        controls.update();
       }
     };
     renderer.domElement.addEventListener("click", onSingleClick);
@@ -734,7 +734,8 @@ export default function Scene3D() {
     }
 
     const handleMouseDown = (e: MouseEvent) => {
-      if (!e.shiftKey) return; // Box selection только с Shift
+      // Box selection требует Ctrl+Shift (или Cmd+Shift на Mac)
+      if (!e.shiftKey || !(e.ctrlKey || e.metaKey)) return;
       
       // ВАЖНО: предотвращаем все default действия И останавливаем propagation
       e.preventDefault();
@@ -874,7 +875,8 @@ export default function Scene3D() {
         }
         return;
       }
-      // Ctrl для блокировки камеры (только если нет других клавиш)
+      
+      // Ctrl для блокировки камеры
       if (e.key === "Control" && !e.repeat) {
         controls.enabled = false;
       }
@@ -1769,7 +1771,7 @@ export default function Scene3D() {
           maxWidth: 380,
         }}
       >
-{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nCtrl + Click — Set target\nAlt + Wheel — Point size`}
+{`R — Reset\nF — Fit to scene\nAlt+F — Fit to cursor\nG — Grid toggle\nX — Axes toggle\nT — Fly mode (WASD + QE, Shift fast, Ctrl slow)\nO — Auto-rotate\nH — Home view\nAlt+1..9 — Load preset\nCtrl+Alt+1..9 — Save preset\nDouble click — Focus & fly\nShift + Double click — Additive focus\nAlt + Click — Set target\nAlt + Wheel — Point size`}
       </div>
 
       {/* Measurement display */}

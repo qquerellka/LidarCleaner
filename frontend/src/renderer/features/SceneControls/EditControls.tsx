@@ -158,7 +158,7 @@ export default function EditControls() {
                       </>
                     ) : (
                       <Text size="xs" c="dimmed" ta="center">
-                        Shift+Drag для выделения
+                        Ctrl+Shift+Drag для выделения
                       </Text>
                     )}
                   </Stack>

@@ -46,9 +46,8 @@ const HOTKEYS: HotkeyCategory[] = [
     title: "Редактирование",
     icon: "✏️",
     hotkeys: [
-      { keys: "Shift + Drag", description: "Выделить прямоугольник" },
-      { keys: "Shift + Ctrl + Drag", description: "Добавить к выделению" },
-      { keys: "Shift + Alt + Drag", description: "Вычесть из выделения" },
+      { keys: "Ctrl + Shift + Drag", description: "Выделить прямоугольник (добавить к существующему)" },
+      { keys: "Alt + Ctrl + Shift + Drag", description: "Вычесть из выделения" },
       { keys: "Ctrl (hold)", description: "Блокировка камеры" },
       { keys: "Esc", description: "Снять выделение" },
       { keys: "Del / Backspace", description: "Удалить выделенное" },
