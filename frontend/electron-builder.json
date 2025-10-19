@@ -1,0 +1,66 @@
+{
+  "appId": "com.lidarcleaner.app",
+  "productName": "LidarCleaner",
+  "copyright": "Copyright © 2025",
+  "directories": {
+    "output": "dist",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist-electron/**/*",
+    "dist/**/*",
+    "package.json"
+  ],
+  "linux": {
+    "target": [
+      "AppImage",
+      "deb",
+      "rpm"
+    ],
+    "category": "Graphics",
+    "icon": "build/icon.png",
+    "synopsis": "Point Cloud Editor",
+    "description": "Professional point cloud cleaning and editing tool with AI-powered auto-cleaning",
+    "desktop": {
+      "Name": "LidarCleaner",
+      "Comment": "Point Cloud Editor",
+      "GenericName": "3D Editor",
+      "Categories": "Graphics;3DGraphics;Engineering;",
+      "MimeType": "application/x-pcd;",
+      "Keywords": "lidar;pointcloud;3d;pcd;editor;"
+    },
+    "fileAssociations": [
+      {
+        "ext": "pcd",
+        "name": "Point Cloud Data",
+        "mimeType": "application/x-pcd"
+      }
+    ]
+  },
+  "appImage": {
+    "license": "LICENSE",
+    "artifactName": "${productName}-${version}-${arch}.${ext}"
+  },
+  "deb": {
+    "depends": [
+      "gconf2",
+      "gconf-service",
+      "libnotify4",
+      "libappindicator1",
+      "libxtst6",
+      "libnss3"
+    ],
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "compression": "xz"
+  },
+  "rpm": {
+    "depends": [
+      "libXScrnSaver",
+      "libnotify",
+      "nss"
+    ],
+    "artifactName": "${productName}-${version}-${arch}.${ext}",
+    "compression": "xz"
+  }
+}
+

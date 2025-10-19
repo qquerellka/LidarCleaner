@@ -24,47 +24,42 @@ export default function ExportButtons() {
   return (
     <Paper p="md" withBorder>
       <Stack gap="sm">
-        <Text size="sm" fw={500}>Экспорт файла</Text>
-        
-        <Group grow>
-          <Button
-            onClick={exportPLY}
-            disabled={!hasFile}
-            size="sm"
-            variant="light"
-            leftSection={<IconDownload size={16} />}
-            title="Экспорт в формат PLY (текстовый)"
-          >
-            PLY
-          </Button>
-          <Button
-            onClick={exportPLYBinary}
-            disabled={!hasFile}
-            size="sm"
-            variant="light"
-            leftSection={<IconDownload size={16} />}
-            title="Экспорт в формат PLY (бинарный)"
-          >
-            PLY (bin)
-          </Button>
+        <Group justify="space-between" align="center">
+          <Text size="sm" fw={500}>Экспорт</Text>
+          <IconDownload size={16} style={{ opacity: 0.5 }} />
         </Group>
-
-        <Button
-          onClick={exportPCD}
-          disabled={!hasFile}
-          size="sm"
-          variant="light"
-          leftSection={<IconDownload size={16} />}
-          fullWidth
-          title="Экспорт в формат PCD (текстовый)"
-        >
-          PCD
-        </Button>
-
-        {!hasFile && (
+        
+        {!hasFile ? (
           <Text size="xs" c="dimmed" ta="center">
             Откройте файл для экспорта
           </Text>
+        ) : (
+          <Group grow gap={4}>
+            <Button
+              onClick={exportPLY}
+              size="xs"
+              variant="light"
+              title="Экспорт в формат PLY (текстовый)"
+            >
+              PLY
+            </Button>
+            <Button
+              onClick={exportPLYBinary}
+              size="xs"
+              variant="light"
+              title="Экспорт в формат PLY (бинарный)"
+            >
+              PLY Bin
+            </Button>
+            <Button
+              onClick={exportPCD}
+              size="xs"
+              variant="light"
+              title="Экспорт в формат PCD (текстовый)"
+            >
+              PCD
+            </Button>
+          </Group>
         )}
       </Stack>
     </Paper>

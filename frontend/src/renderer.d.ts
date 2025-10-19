@@ -71,6 +71,7 @@ declare global {
       openPCD: () => Promise<string | null>;
       readFile: (path: string) => Promise<Uint8Array>;
       saveFile: (opts: SaveFileOptions) => Promise<string | null>;
+      getPathForFile: (file: File) => string;
       
       // Path utilities
       getPaths: () => Promise<AppPaths>;

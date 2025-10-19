@@ -250,6 +250,214 @@ pcl_convert_pcd_ascii_binary input.pcd output.pcd 0
 
 ## Проблемы с Electron
 
+### ⚠️ Проблемы с Electron на Ubuntu Linux
+
+#### ❌ Ошибка: `Authorization required, but no authorization protocol specified`
+
+**Причина:** Проблемы с X11/Wayland авторизацией. Часто возникает когда:
+- Приложение запущено от другого пользователя (например, установлено через sudo)
+- Проблемы с правами доступа к X-серверу
+- Используется Wayland вместо X11
+
+**Решение 1: Проверка владельца файлов**
+```bash
+# Проверьте кто владелец node_modules
+ls -la frontend/node_modules/electron/dist/
+
+# Если владелец не ваш пользователь, исправьте:
+sudo chown -R $USER:$USER frontend/node_modules
+sudo chown -R $USER:$USER frontend/dist-electron
+```
+
+**Решение 2: X11 авторизация**
+```bash
+# Разрешите доступ к X-серверу (временное решение, НЕ безопасно для продакшна)
+xhost +local:
+
+# Или более безопасный вариант:
+xhost +SI:localuser:$USER
+```
+
+**Решение 3: Переключение на X11 (если используется Wayland)**
+```bash
+# Проверьте текущий сервер
+echo $XDG_SESSION_TYPE
+
+# Если Wayland, попробуйте запустить с XWayland:
+GDK_BACKEND=x11 npm run dev
+
+# Или при следующем входе выберите "Ubuntu on Xorg" вместо "Ubuntu"
+```
+
+**Решение 4: Используйте флаги для отключения sandbox**
+```bash
+# В frontend/package.json измените скрипт:
+"dev": "electron . --no-sandbox --disable-gpu-sandbox"
+```
+
+⚠️ **Важно:** Флаг `--no-sandbox` снижает безопасность. Используйте только для разработки!
+
+---
+
+#### ❌ Ошибка: `Failed to load GLES library: Permission denied`
+
+**Причина:** Нет прав на чтение OpenGL библиотек в `node_modules/electron/dist/`.
+
+**Решение:**
+```bash
+# Исправьте права доступа
+cd frontend
+chmod -R u+r node_modules/electron/dist/
+chmod +x node_modules/electron/dist/electron
+
+# Если не помогло, переустановите electron
+rm -rf node_modules/electron
+npm install electron --save-dev
+```
+
+---
+
+#### ❌ Ошибка: `Failed to connect to the bus` (D-Bus)
+
+**Причина:** Проблемы с D-Bus системной шиной.
+
+**Решение 1: Установка D-Bus**
+```bash
+# Убедитесь что D-Bus установлен
+sudo apt-get update
+sudo apt-get install -y dbus dbus-x11
+
+# Запустите D-Bus сессию если нужно
+eval $(dbus-launch)
+```
+
+**Решение 2: Игнорирование ошибок D-Bus**
+```bash
+# Эти ошибки часто не критичны и можно игнорировать
+# Добавьте переменную окружения:
+export DBUS_FATAL_WARNINGS=0
+npm run dev
+```
+
+---
+
+#### ❌ Ошибка: `Exiting GPU process due to errors during initialization`
+
+**Причина:** Проблемы с GPU/OpenGL драйверами или ускорением.
+
+**Решение 1: Установка необходимых библиотек**
+```bash
+# Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install -y \
+  libgbm1 \
+  libgl1-mesa-glx \
+  libgl1-mesa-dri \
+  libegl1-mesa \
+  libgles2-mesa
+
+# После установки перезапустите приложение
+```
+
+**Решение 2: Отключение GPU ускорения**
+```bash
+# Запустите с программным рендерингом
+npm run dev -- --disable-gpu
+
+# Или в package.json:
+"dev": "electron . --disable-gpu"
+```
+
+**Решение 3: Используйте software rendering**
+```typescript
+// В main/index.ts перед созданием окна:
+app.disableHardwareAcceleration();
+```
+
+⚠️ **Важно:** Отключение GPU снизит производительность 3D рендеринга!
+
+---
+
+#### 🔧 Комплексное решение для Ubuntu
+
+Если у вас множественные ошибки на Ubuntu, попробуйте этот чеклист:
+
+```bash
+# 1. Установите все необходимые зависимости
+sudo apt-get update
+sudo apt-get install -y \
+  libgbm1 \
+  libgl1-mesa-glx \
+  libgl1-mesa-dri \
+  libegl1-mesa \
+  libgles2-mesa \
+  libgtk-3-0 \
+  libnotify4 \
+  libnss3 \
+  libxss1 \
+  libxtst6 \
+  xdg-utils \
+  libatspi2.0-0 \
+  libdrm2 \
+  libgbm1 \
+  libasound2 \
+  dbus \
+  dbus-x11
+
+# 2. Исправьте права доступа
+cd frontend
+sudo chown -R $USER:$USER node_modules
+sudo chown -R $USER:$USER dist-electron
+chmod -R u+r node_modules/electron/dist/
+
+# 3. Настройте X11 доступ
+xhost +SI:localuser:$USER
+
+# 4. Запустите с правильными переменными окружения
+export DBUS_FATAL_WARNINGS=0
+export ELECTRON_DISABLE_SANDBOX=1
+npm run dev
+
+# 5. Если не помогло, попробуйте без GPU
+npm run dev -- --disable-gpu --no-sandbox
+```
+
+---
+
+#### 📋 Проверка зависимостей для Ubuntu
+
+Создайте скрипт для проверки:
+```bash
+#!/bin/bash
+echo "Checking Electron dependencies..."
+
+# Check libraries
+libs=("libgbm.so.1" "libGL.so.1" "libEGL.so.1" "libGLESv2.so.2")
+for lib in "${libs[@]}"; do
+    if ldconfig -p | grep -q "$lib"; then
+        echo "✓ $lib found"
+    else
+        echo "✗ $lib missing"
+    fi
+done
+
+# Check X11
+if [ -n "$DISPLAY" ]; then
+    echo "✓ DISPLAY is set: $DISPLAY"
+else
+    echo "✗ DISPLAY not set"
+fi
+
+# Check permissions
+if [ -r "frontend/node_modules/electron/dist/electron" ]; then
+    echo "✓ Electron binary is readable"
+else
+    echo "✗ Cannot read Electron binary"
+fi
+```
+
+---
+
 ### DevTools не открываются
 
 **Решение:**
@@ -466,6 +674,70 @@ sudo systemctl start docker
 # Проверка
 docker ps
 ```
+
+---
+
+### ❌ Ошибка: `permission denied while trying to connect to the Docker daemon socket`
+
+**Причина:** Ваш пользователь не входит в группу `docker`, поэтому Docker требует sudo для работы.
+
+**Решение для Ubuntu/Debian:**
+```bash
+# 1. Добавьте пользователя в группу docker
+sudo usermod -aG docker $USER
+
+# 2. Проверьте группы
+groups
+# Должна быть группа "docker" в списке
+
+# 3. Если "docker" нет в списке, перелогиньтесь
+# Способ 1: Активировать группу в текущей сессии (временно)
+newgrp docker
+
+# Способ 2: Полный перелогин (рекомендуется)
+# Выйдите из системы и войдите заново, или выполните:
+sudo reboot
+
+# 4. Проверьте что Docker работает БЕЗ sudo
+docker ps
+docker run hello-world
+```
+
+**Решение для Arch Linux:**
+```bash
+# 1. Добавьте пользователя в группу docker
+sudo usermod -aG docker $USER
+
+# 2. Убедитесь что Docker daemon запущен
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo systemctl status docker
+
+# 3. Перелогиньтесь
+newgrp docker
+# Или выйдите и войдите заново
+
+# 4. Проверьте что Docker работает БЕЗ sudo
+docker ps
+```
+
+**Проверка прав доступа:**
+```bash
+# Проверьте существование Docker socket
+ls -l /var/run/docker.sock
+# Должно быть: srw-rw---- 1 root docker
+
+# Проверьте что ваш пользователь в группе docker
+groups | grep docker
+
+# Проверьте ID группы
+getent group docker
+```
+
+**⚠️ Важно:**
+- После добавления в группу `docker`, **обязательно** нужно перелогиниться
+- Команда `newgrp docker` работает только в текущей сессии терминала
+- Для полного применения изменений используйте `logout` → `login` или `reboot`
 
 ---
 

@@ -207,44 +207,49 @@ export default function AutoCleanButton() {
     <Paper p="md" withBorder>
       <Stack gap="sm">
         {!busy ? (
-          <Button
-            onClick={onClick}
-            disabled={!canRun}
-            leftSection={<IconSparkles size={18} />}
-            fullWidth
-            size="md"
-            variant="gradient"
-            gradient={{ from: "cyan", to: "blue", deg: 90 }}
-          >
-            Удалить динамику
-          </Button>
-        ) : (
-          <Group gap="xs">
+          <>
             <Button
-              disabled
-              loading
+              onClick={onClick}
+              disabled={!canRun}
               leftSection={<IconSparkles size={18} />}
-              size="md"
+              fullWidth
+              size="sm"
               variant="gradient"
               gradient={{ from: "cyan", to: "blue", deg: 90 }}
-              style={{ flex: 1 }}
             >
-              Обработка...
+              Удалить динамику
             </Button>
-            <Button
-              onClick={onCancel}
-              size="md"
-              color="red"
-              variant="light"
-              leftSection={<IconX size={18} />}
-            >
-              Отмена
-            </Button>
-          </Group>
-        )}
-        
-        {busy && (
-          <Stack gap={4}>
+            {!filePath && (
+              <Text size="xs" c="dimmed" ta="center">
+                <IconAlertCircle size={12} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                Сначала откройте файл
+              </Text>
+            )}
+          </>
+        ) : (
+          <Stack gap="xs">
+            <Group gap="xs">
+              <Button
+                disabled
+                loading
+                leftSection={<IconSparkles size={16} />}
+                size="sm"
+                variant="gradient"
+                gradient={{ from: "cyan", to: "blue", deg: 90 }}
+                style={{ flex: 1 }}
+              >
+                Обработка...
+              </Button>
+              <Button
+                onClick={onCancel}
+                size="sm"
+                color="red"
+                variant="light"
+              >
+                <IconX size={16} />
+              </Button>
+            </Group>
+            
             <Progress 
               value={displayProgress} 
               color={
@@ -253,37 +258,23 @@ export default function AutoCleanButton() {
                 isStuck ? "yellow" : 
                 "green"
               }
-              size="lg"
+              size="md"
               radius="sm"
               striped={displayProgress < 100}
               animated={displayProgress < 100}
             />
             
-            <Stack gap={2}>
-              <Text size="xs" c="dimmed" ta="center">
-                {Math.round(displayProgress)}% • Прошло: {formatTime(timeElapsed)}
+            <Text size="xs" c="dimmed" ta="center">
+              {Math.round(displayProgress)}% • {formatTime(timeElapsed)}
+              {!isStuck && displayProgress < 95 && ` • ~${formatTime(15 - timeElapsed)} осталось`}
+            </Text>
+            
+            {isStuck && (
+              <Text size="xs" c="yellow" ta="center" fs="italic">
+                ⏳ Может занять время...
               </Text>
-              
-              {isStuck && (
-                <Text size="xs" c="yellow" ta="center" fs="italic">
-                  ⏳ Обработка больших файлов может занять время...
-                </Text>
-              )}
-              
-              {!isStuck && displayProgress < 95 && (
-                <Text size="xs" c="dimmed" ta="center">
-                  ~{formatTime(15 - timeElapsed)} осталось
-                </Text>
-              )}
-            </Stack>
+            )}
           </Stack>
-        )}
-        
-        {!filePath && (
-          <Text size="xs" c="dimmed" ta="center">
-            <IconAlertCircle size={14} style={{ verticalAlign: "middle", marginRight: 4 }} />
-            Сначала откройте файл
-          </Text>
         )}
       </Stack>
     </Paper>

@@ -10,7 +10,7 @@
 [![Three.js](https://img.shields.io/badge/Three.js-0.180-000000?logo=three.js)](https://threejs.org/)
 [![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go)](https://golang.org/)
 
-[Быстрый старт](QUICK_START.md) • [Возможности](#-возможности) • [Документация](docs/INDEX.md) • [API](docs/api/rest-api.md) • [ML](ml/README.md)
+[Возможности](#-возможности) • [Документация](docs/INDEX.md) • [API](docs/api/rest-api.md) • [ML](ml/README.md)
 
 ![schema](assets/schema.png)
 
@@ -20,14 +20,14 @@
 
 ## 📋 Содержание
 
+- [📥 Посмотреть итоговые файлы и видео на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
+- [ML часть](ml/README.md)
 - [О проекте](#-о-проекте)
 - [Возможности](#-возможности)
 - [Требования](#-требования)
 - [Быстрый старт](#-быстрый-старт)
 - [Горячие клавиши](#-горячие-клавиши)
 - [Документация](#-документация)
-- [Roadmap](#-roadmap)
-- [Contributing](#-contributing)
 - [Лицензия](#-лицензия)
 
 ---
@@ -108,6 +108,13 @@
 - **8GB RAM** (рекомендуется 16GB для больших файлов)
 - **Свободное место**: ~10GB для образов и данных
 
+**⚠️ Важно для Linux (Ubuntu/Debian/Arch):**
+Убедитесь, что ваш пользователь добавлен в группу `docker`:
+```bash
+sudo usermod -aG docker $USER
+# После этого перелогиньтесь или выполните: newgrp docker
+```
+
 ### Frontend
 
 - **Node.js** >= 18.0
@@ -170,8 +177,6 @@ npm run dev
 
 ### 👨‍💻 Для разработчиков
 
-- **[Contributing](docs/development/contributing.md)** - как внести вклад
-- **[Development Guide](docs/development/development.md)** - настройка окружения
 - **[Architecture](docs/development/architecture.md)** - архитектура приложения
 - **[REST API](docs/api/rest-api.md)** - документация API
 
@@ -183,53 +188,7 @@ npm run dev
 ---
 
 ## 🏗️ Краткая архитектура
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Electron App                            │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │                  Renderer Process                      │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │  │
-│  │  │   React UI   │  │  Three.js    │  │   Redux    │  │  │
-│  │  │   (Mantine)  │  │   (Scene)    │  │  (State)   │  │  │
-│  │  └──────┬───────┘  └──────┬───────┘  └─────┬──────┘  │  │
-│  │         │                 │                 │         │  │
-│  │         └─────────────────┴─────────────────┘         │  │
-│  │                          │                            │  │
-│  │                     IPC Bridge                        │  │
-│  └──────────────────────────┼────────────────────────────┘  │
-│  ┌──────────────────────────┼────────────────────────────┐  │
-│  │                  Main Process                          │  │
-│  │  ┌──────────────┐  ┌────┴──────┐  ┌───────────────┐  │  │
-│  │  │  Window Mgmt │  │ File I/O  │  │   Backend IPC │  │  │
-│  │  └──────────────┘  └───────────┘  └───────┬───────┘  │  │
-│  └────────────────────────────────────────────┼──────────┘  │
-└─────────────────────────────────────────────────┼───────────┘
-                                                  │
-                                            HTTP/REST
-                                                  │
-┌─────────────────────────────────────────────────┼───────────┐
-│                    Backend (Go)                 │           │
-│  ┌──────────────────────────────────────────────▼────────┐  │
-│  │              Gin HTTP Server                          │  │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌────────────┐  │  │
-│  │  │ File Upload  │  │   Process    │  │   Health   │  │  │
-│  │  │   Handler    │  │   Dynamic    │  │   Check    │  │  │
-│  │  └──────┬───────┘  └──────┬───────┘  └────────────┘  │  │
-│  └─────────┼──────────────────┼──────────────────────────┘  │
-│            │                  │                             │
-│  ┌─────────▼─────┐   ┌────────▼──────┐   ┌──────────────┐  │
-│  │    MinIO      │   │   RabbitMQ    │   │  PostgreSQL  │  │
-│  │  (S3 Storage) │   │  (Task Queue) │   │  (Metadata)  │  │
-│  └───────────────┘   └───────────────┘   └──────────────┘  │
-│                                                             │
-│  ┌──────────────────────────────────────────────────────┐  │
-│  │              CV Worker (Python/Go)                    │  │
-│  │     Обработка облаков точек, удаление динамики       │  │
-│  └──────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
-
+![schema](assets/schema2.jpeg)
 **Подробнее:** [docs/development/architecture.md](docs/development/architecture.md)
 
 ### Технологический стек
@@ -360,52 +319,9 @@ npm run dev
 - [ ] Локализация (EN, RU, CN)
 
 ---
-
-## 🤝 Contributing
-
-Мы приветствуем вклад от сообщества! 
-
-**Полное руководство:** [docs/development/contributing.md](docs/development/contributing.md)
-
-**Быстрый старт:**
-1. Fork репозиторий
-2. Создайте feature branch
-3. Сделайте изменения
-4. Добавьте тесты
-5. Отправьте Pull Request
-
-**Для разработчиков:** [docs/development/development.md](docs/development/development.md)
-
----
-
 ## 📄 Лицензия
 
 Этот проект распространяется под лицензией **MIT**. Подробности в файле [LICENSE](LICENSE).
-
----
-
-## 👥 Авторы
-
-- **LidarCleaner Team** - [GitHub](https://github.com/lidarcleaner)
-
----
-
-## 🙏 Благодарности
-
-- [Three.js](https://threejs.org/) за отличную 3D библиотеку
-- [Electron](https://www.electronjs.org/) за desktop framework
-- [Mantine](https://mantine.dev/) за красивые UI компоненты
-- Всем contributors и тестировщикам
-
----
-
-## 📞 Контакты и поддержка
-
-- 🐛 **Issues**: [GitHub Issues](https://github.com/qquerellka/LidarCleaner/issues)
-- 💬 **Discussions**: [GitHub Discussions](https://github.com/qquerellka/LidarCleaner/discussions)
-- 📚 **Документация**: [docs/INDEX.md](docs/INDEX.md)
-- ❓ **FAQ**: [docs/user-guide/faq.md](docs/user-guide/faq.md)
-
 ---
 
 [⬆ Наверх](#-lidarcleaner)

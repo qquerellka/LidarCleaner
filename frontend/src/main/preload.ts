@@ -1,5 +1,5 @@
 // preload.ts
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 // Simple structured logger for renderer DevTools
 const API_DEBUG = true;
@@ -38,6 +38,19 @@ contextBridge.exposeInMainWorld("api", {
       const res = await ipcRenderer.invoke("dialog:openPCD");
       log.done(res);
       return res as string | null;
+    } catch (e) {
+      log.done(undefined, e);
+      throw e;
+    }
+  },
+
+  // Get file path from File object (for drag and drop in sandbox mode)
+  getPathForFile: (file: File): string => {
+    const log = logWrap("getPathForFile", { fileName: file.name });
+    try {
+      const path = webUtils.getPathForFile(file);
+      log.done(path);
+      return path;
     } catch (e) {
       log.done(undefined, e);
       throw e;
