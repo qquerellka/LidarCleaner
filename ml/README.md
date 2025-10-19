@@ -71,15 +71,9 @@ Input Point Cloud (.pcd/.ply)
 ---
 
 ## 🧠 Модели
-
 ### 1. best_model.pth
 
 **Местоположение:** `ml/models/best_model.pth` или `backend/cv_worker/best_model.pth`
-
-### 2. seg_model_19.pth
-
-**Описание:**
-- Модель для детекции автомобилей
 
 **Описание:**
 - Обученные модели PointNet++ для детекции объектов в движении
@@ -87,41 +81,19 @@ Input Point Cloud (.pcd/.ply)
 - Входные features: 9 каналов (XYZ + RGB + Normals)
 - Выходные классы: 2 (static/dynamic)
 
-**Метрики:**
-- mIoU ~56%
-- Precision (dynamic): ~70%
-- Recall (dynamic): ~60%
-- F1-score: ~65%
+### 2. seg_model_19.pth
 
-**Обучено на:**
+**Описание:**
+- Модель для детекции автомобилей
+- Архитектура: PointNet++ 
+- Входные features: 9 каналов (XYZ + RGB + Normals)
+- Выходные классы: 4 (car/road/builds/other)
+---
+
+## 📊 Датасеты
 - [KITTI-360-dataset](https://www.kaggle.com/datasets/greatgamedota/kitti360-3d-semantics)
 - [Toronto-3D](https://www.kaggle.com/datasets/priteshraj10/point-cloud-lidar-toronto-3d)
 - Аугментация: rotation, scaling, jittering
-
----
-
-## 📊 Датасет
-
-### Структура датасета
-
-```
-dataset/
-├── train/
-│   ├── static/
-│   │   ├── scene001.pcd
-│   │   ├── scene002.pcd
-│   │   └── ...
-│   └── dynamic/
-│       ├── scene001.pcd
-│       ├── scene002.pcd
-│       └── ...
-├── val/
-│   ├── static/
-│   └── dynamic/
-└── test/
-    ├── static/
-    └── dynamic/
-```
 
 ### Препроцессинг
 
@@ -156,7 +128,7 @@ GPU Memory >= 8GB
 
 #### 2. Обучение модели
 
-Используйте `ml/notebooks/train.ipynb` или запустите напрямую
+Используйте `ml/notebooks/train.ipynb`
 
 ### Гиперпараметры
 
@@ -172,17 +144,10 @@ GPU Memory >= 8GB
 ---
 
 ## 🔮 Инференс
-
-### Использование обученной модели
-
-#### Jupyter Notebook
-
 Используйте `ml/notebooks/inference.ipynb`
 
 
 ## 📈 Результаты
-
-### Примеры
 
 #### Пример 1: Городская улица
 
@@ -212,18 +177,14 @@ GPU Memory >= 8GB
 - Сохранена структура парковки
 - 2.9M точек (экономия 50%)
 
----
-
-### Метрики
+###
 
 | Метрика | Значение |
 |---------|----------|
-| **Accuracy** | 92.3% |
-| **Precision (dynamic)** | 88.1% |
-| **Recall (dynamic)** | 85.4% |
-| **F1-score** | 86.7% |
-| **IoU (dynamic)** | 76.5% |
-| **Processing time** | ~10 sec / 1M points (GPU) |
+| **mIoU** | 56% |
+| **Precision (dynamic)** | 70.1% |
+| **Recall (dynamic)** | 60.4% |
+| **F1-score** | 65.7% |
 
 ### Limitations
 
@@ -250,20 +211,7 @@ GPU Memory >= 8GB
 3. Дождитесь обработки (~5-15 минут)
 4. Результат загрузится автоматически
 
-### Параметры (в коде)
-
-```python
-# ml/main.py
-DYNAMIC_THRESHOLD = 0.45        # Порог для классификации
-HOLE_FILL_RADIUS = 0.4          # Радиус для заполнения дыр
-HOLE_FILL_MIN_NEIGHBORS = 6     # Мин. соседей для заполнения
-STATISTICAL_NB_NEIGHBORS = 20   # Статистический фильтр
-STATISTICAL_STD_RATIO = 2.0     # Std ratio для фильтра
-```
-
 Можно настроить для своих нужд!
-
----
 
 ## 📚 Дополнительные материалы
 
@@ -279,8 +227,8 @@ STATISTICAL_STD_RATIO = 2.0     # Std ratio для фильтра
 
 | Файл | Размер | Описание |
 |------|--------|----------|
-| `models/best_model.pth` | ~15 MB | Основная модель PointNet++ |
-| `models/seg_model_19.pth` | ~15 MB | Модель для детекции автомобилей |
+| `models/best_model.pth` | ~15 MB |Модель PointNet++ для детекции объектов в движении|
+| `models/seg_model_19.pth` | ~15 MB | Модель PointNet++ для детекции автомобилей |
 
 ### Изображения
 
@@ -339,29 +287,17 @@ STATISTICAL_STD_RATIO = 2.0     # Std ratio для фильтра
 # Попробуйте map_location
 model.load_state_dict(torch.load('best_model.pth', map_location='cpu'))
 ```
-
-### Низкая точность
-
-**Решение:**
-- Увеличьте размер датасета
-- Добавьте аугментации
-- Обучайте дольше (больше эпох)
-- Попробуйте MSG variant PointNet++
-
 ---
 
 ## 📧 Контакты
 
 Вопросы по ML части:
-- 📧 Email: ml@lidarcleaner.app (если будет)
 - 🐛 [GitHub Issues](https://github.com/qquerellka/LidarCleaner/issues)
 - 💬 [Discussions](https://github.com/qquerellka/LidarCleaner/discussions)
 
 ---
 
 <div align="center">
-
-**Happy Training! 🚀🤖**
 
 [⬆ Наверх](#-lidarcleaner---machine-learning) | [🏠 README](../README.md) | [📚 Docs](../docs/INDEX.md)
 
