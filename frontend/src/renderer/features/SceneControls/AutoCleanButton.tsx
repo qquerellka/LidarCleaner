@@ -245,9 +245,8 @@ export default function AutoCleanButton() {
                 size="sm"
                 color="red"
                 variant="light"
-                leftSection={<IconX size={16} />}
               >
-                ✕
+                <IconX size={16} />
               </Button>
             </Group>
             
