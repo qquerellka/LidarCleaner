@@ -319,17 +319,3 @@ Closes #123
 - Изменения попадут в следующий релиз
 - Вы будете упомянуты в CHANGELOG
 
----
-
-## Вопросы?
-
-- 💬 [Discussions](https://github.com/lidarcleaner/app/discussions)
-- 🐛 [Issues](https://github.com/lidarcleaner/app/issues)
-- 📧 Email: contribute@lidarcleaner.app
-
----
-
-## Спасибо!
-
-Каждый вклад ценен, независимо от размера. Спасибо за то, что делаете LidarCleaner лучше! 🎉
-
