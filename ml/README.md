@@ -73,7 +73,7 @@ Input Point Cloud (.pcd/.ply)
 ## 🧠 Модели
 ### 1. best_model.pth
 
-**Местоположение:** `ml/models/best_model.pth` или `backend/cv_worker/best_model.pth`
+**Местоположение:** `ml/models/` или `backend/cv_worker/`
 
 **Описание:**
 - Обученные модели PointNet++ для детекции объектов в движении
