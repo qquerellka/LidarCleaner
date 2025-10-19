@@ -177,8 +177,6 @@ npm run dev
 
 ### 👨‍💻 Для разработчиков
 
-- **[Contributing](docs/development/contributing.md)** - как внести вклад
-- **[Development Guide](docs/development/development.md)** - настройка окружения
 - **[Architecture](docs/development/architecture.md)** - архитектура приложения
 - **[REST API](docs/api/rest-api.md)** - документация API
 
