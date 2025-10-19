@@ -1,6 +1,13 @@
 # 🤖 LidarCleaner - Machine Learning
 
+### 🛠️ Стек технологий
+
+-   **Языки/ML**: `Python`, `PyTorch (PointNet++)`
+-   **Обработка данных**: `PCL`, `Open3D`, `CloudCompare`
+-   **ОС/Инструменты**: `Jupyter`, `Colab`, `Kaggle`
 Документация по machine learning компонентам LidarCleaner для автоматической очистки облаков точек от динамических объектов.
+
+[📥 Посмотреть итоговые файлы и видео на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
 
 ---
 
@@ -92,8 +99,20 @@ Input Point Cloud (.pcd/.ply)
 
 ## 📊 Датасеты
 - [KITTI-360-dataset](https://www.kaggle.com/datasets/greatgamedota/kitti360-3d-semantics)
+  -   **Тип**: Динамические объекты.
+  -   **Обработка**:
+      -   Нормализация (x, y, z + intensity).
+      -   Oversampling + Downsampling majority
+      -   Object Isolation
+      -   Аугментация (ротации, scaling).
 - [Toronto-3D](https://www.kaggle.com/datasets/priteshraj10/point-cloud-lidar-toronto-3d)
-- Аугментация: rotation, scaling, jittering
+  -   **Тип**: Статические элементы (стоящие авто).
+  -   **Обработка**:
+      -   Конвертация PCD.
+      -   Фильтрация.
+      -   Аугментация (сдвиги, jitter).
+      -   Баланс классов.
+  -   **Назначение**: Для модели на стоящие объекты.
 
 
 ## 🏋️ Обучение
@@ -124,6 +143,13 @@ GPU Memory >= 8GB
 #### 2. Обучение модели
 
 Используйте `ml/notebooks/train.ipynb`
+
+- **Вход**: PCD-файл (e.g., `points.pcd`, `points.ply`).
+-  **Предобработка**: Фильтрация шумов, нормализация.
+-  **Сегментация**:
+    -   **Модель 1 (PointNet++ на KITTI-360)**: 0.6 * Loss Focal + 0.4 * Lovász, для объектов в движении.
+    -   **Модель 2 (PointNet++ на Toronto-3D)**: Loss Focal + IoU + Dice, для стоящих авто.
+-  **Удаление**: Слияние масок, исключение точек.
 
 ### Гиперпараметры
 
@@ -296,4 +322,3 @@ model.load_state_dict(torch.load('best_model.pth', map_location='cpu'))
 [⬆ Наверх](#-lidarcleaner---machine-learning) | [🏠 README](../README.md) | [📚 Docs](../docs/INDEX.md)
 
 </div>
-
