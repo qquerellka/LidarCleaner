@@ -10,7 +10,7 @@
 [![Three.js](https://img.shields.io/badge/Three.js-0.180-000000?logo=three.js)](https://threejs.org/)
 [![Go](https://img.shields.io/badge/Go-1.23-00ADD8?logo=go)](https://golang.org/)
 
-[Быстрый старт](QUICK_START.md) • [Возможности](#-возможности) • [Документация](docs/INDEX.md) • [API](docs/api/rest-api.md) • [ML](ml/README.md)
+[Возможности](#-возможности) • [Документация](docs/INDEX.md) • [API](docs/api/rest-api.md) • [ML](ml/README.md)
 
 ![schema](assets/schema.png)
 
