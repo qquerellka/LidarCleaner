@@ -26,9 +26,7 @@ ML компонент LidarCleaner использует deep learning для а�
 **Удаляет:**
 - 🚗 Автомобили
 - 🚶 Людей
-- 📦 Временные объекты
-- 🚲 Велосипеды, мотоциклы
-- 🛒 Тележки, временные конструкции
+- Объекты снятые в движении
 
 **Оставляет:**
 - 🏢 Здания
@@ -45,13 +43,9 @@ ML компонент LidarCleaner использует deep learning для а�
 
 #### PointNet++ (основная)
 - **Задача**: Семантическая сегментация облаков точек
-- **Архитектура**: PointNet++ (SSG или MSG variant)
+- **Архитектура**: PointNet++ 
 - **Входные данные**: XYZ координаты + RGB цвета + нормали
 - **Выход**: Вероятность для каждой точки (динамический/статический)
-
-#### RANSAC + DBSCAN (классические методы)
-- **RANSAC**: Удаление плоскости земли
-- **DBSCAN**: Кластеризация объектов
 
 ### Pipeline обработки
 
@@ -59,7 +53,7 @@ ML компонент LidarCleaner использует deep learning для а�
 Input Point Cloud (.pcd/.ply)
         ↓
    Preprocessing
-   - Downsampling (если > 5M точек)
+   - Downsampling
    - Normal estimation
    - Color normalization
         ↓
@@ -68,8 +62,7 @@ Input Point Cloud (.pcd/.ply)
    - Semantic segmentation
         ↓
    Post-processing
-   - Threshold filtering (0.45)
-   - Noise removal
+   - Threshold filtering (0.4)
    - Hole filling
         ↓
    Output Point Cloud (cleaned)
@@ -83,28 +76,27 @@ Input Point Cloud (.pcd/.ply)
 
 **Местоположение:** `ml/models/best_model.pth` или `backend/cv_worker/best_model.pth`
 
+### 2. seg_model_19.pth
+
 **Описание:**
-- Обученная модель PointNet++ для детекции динамических объектов
-- Архитектура: PointNet++ SSG (Single Scale Grouping)
+- Модель для детекции автомобилей
+
+**Описание:**
+- Обученные модели PointNet++ для детекции объектов в движении
+- Архитектура: PointNet++ 
 - Входные features: 9 каналов (XYZ + RGB + Normals)
 - Выходные классы: 2 (static/dynamic)
 
 **Метрики:**
-- Accuracy: ~92%
-- Precision (dynamic): ~88%
-- Recall (dynamic): ~85%
-- F1-score: ~86%
+- mIoU ~56%
+- Precision (dynamic): ~70%
+- Recall (dynamic): ~60%
+- F1-score: ~65%
 
 **Обучено на:**
-- Custom датасет уличных сцен
-- ~50K примеров облаков точек
+- [KITTI-360-dataset](https://www.kaggle.com/datasets/greatgamedota/kitti360-3d-semantics)
+- [Toronto-3D](https://www.kaggle.com/datasets/priteshraj10/point-cloud-lidar-toronto-3d)
 - Аугментация: rotation, scaling, jittering
-
-### 2. seg_model_19.pth (опционально)
-
-**Описание:**
-- Дополнительная модель для детекции автомобилей
-- Более специализированная, но менее универсальная
 
 ---
 
@@ -131,37 +123,11 @@ dataset/
     └── dynamic/
 ```
 
-### Источники данных
-
-Рекомендуемые публичные датасеты:
-- **KITTI** ([link](http://www.cvlibs.net/datasets/kitti/)) - автомобильные сцены
-- **SemanticKITTI** ([link](http://semantic-kitti.org/)) - семантическая сегментация
-- **Waymo Open Dataset** ([link](https://waymo.com/open/)) - большой датасет
-- **nuScenes** ([link](https://www.nuscenes.org/)) - городские сцены
-
 ### Препроцессинг
 
-Используйте `ml/notebooks/preprocessed_dataset.ipynb`:
+Используйте `ml/notebooks/preprocessed_dataset.ipynb`
 
-```python
-# 1. Загрузка и фильтрация
-pcd = o3d.io.read_point_cloud("scene.pcd")
-pcd = remove_outliers(pcd)
 
-# 2. Нормализация
-points = normalize_points(np.asarray(pcd.points))
-colors = normalize_colors(np.asarray(pcd.colors))
-
-# 3. Вычисление нормалей
-pcd.estimate_normals()
-normals = np.asarray(pcd.normals)
-
-# 4. Сохранение
-features = np.hstack([points, colors, normals])
-np.save("processed/scene.npy", features)
-```
-
----
 
 ## 🏋️ Обучение
 
@@ -186,45 +152,11 @@ GPU Memory >= 8GB
 Используйте `ml/notebooks/preprocessed_dataset.ipynb`:
 - Загрузите облака точек
 - Выполните препроцессинг
-- Разделите на train/val/test (70/15/15)
+- Разделите на train/val
 
 #### 2. Обучение модели
 
-Используйте `ml/notebooks/train.ipynb` или запустите напрямую:
-
-```python
-# Параметры
-BATCH_SIZE = 16
-EPOCHS = 50
-LEARNING_RATE = 0.001
-NUM_POINTS = 4096
-
-# Model
-model = PointNet2SemSeg(num_classes=2, input_channels=9)
-optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
-scheduler = ReduceLROnPlateau(optimizer, patience=5)
-
-# Training loop
-for epoch in range(EPOCHS):
-    train_loss = train_epoch(model, train_loader, optimizer)
-    val_loss = validate(model, val_loader)
-    scheduler.step(val_loss)
-    
-    if val_loss < best_loss:
-        torch.save(model.state_dict(), 'best_model.pth')
-```
-
-#### 3. Мониторинг
-
-```python
-# TensorBoard (опционально)
-from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter('runs/pointnet_exp1')
-
-writer.add_scalar('Loss/train', train_loss, epoch)
-writer.add_scalar('Loss/val', val_loss, epoch)
-writer.add_scalar('Accuracy', accuracy, epoch)
-```
+Используйте `ml/notebooks/train.ipynb` или запустите напрямую
 
 ### Гиперпараметры
 
@@ -232,10 +164,9 @@ writer.add_scalar('Accuracy', accuracy, epoch)
 |----------|----------|----------|
 | `batch_size` | 16 | Размер батча |
 | `learning_rate` | 0.001 | Начальная скорость обучения |
-| `epochs` | 50 | Количество эпох |
-| `num_points` | 4096 | Количество точек в сэмпле |
-| `dropout` | 0.3 | Dropout rate |
-| `weight_decay` | 1e-4 | L2 регуляризация |
+| `epochs` | 60 | Количество эпох |
+| `num_points` | 16384 | Количество точек в сэмпле |
+| `voxel_size` | 0.01 |Downsampling|
 | `scheduler` | ReduceLROnPlateau | LR scheduler |
 
 ---
@@ -244,55 +175,10 @@ writer.add_scalar('Accuracy', accuracy, epoch)
 
 ### Использование обученной модели
 
-#### Вариант 1: Jupyter Notebook
+#### Jupyter Notebook
 
-Используйте `ml/notebooks/inference.ipynb`:
+Используйте `ml/notebooks/inference.ipynb`
 
-```python
-import torch
-from models.pointnet2_sem_seg import get_model
-
-# Load model
-model = get_model(num_classes=2, input_channels=9)
-model.load_state_dict(torch.load('best_model.pth'))
-model.eval()
-
-# Load point cloud
-pcd = o3d.io.read_point_cloud("scene.pcd")
-features = prepare_features(pcd)
-
-# Inference
-with torch.no_grad():
-    outputs = model(features)
-    predictions = outputs.argmax(dim=1)
-
-# Filter dynamic points
-static_mask = predictions == 0
-cleaned_pcd = pcd.select_by_index(np.where(static_mask)[0])
-
-# Save
-o3d.io.write_point_cloud("cleaned.pcd", cleaned_pcd)
-```
-
-#### Вариант 2: Python скрипт
-
-Используйте `ml/main.py` (в корне):
-
-```bash
-python main.py --input scene.pcd --output cleaned.pcd --model ml/models/best_model.pth
-```
-
-#### Вариант 3: Backend API
-
-Через REST API (автоматически):
-
-```bash
-curl -X POST http://localhost:8000/files/process_dynamic \
-  -H "Content-Type: application/json" \
-  -d '{"file_path": "/path/to/scene.pcd"}'
-```
-
----
 
 ## 📈 Результаты
 
