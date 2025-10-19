@@ -64,6 +64,7 @@ Input Point Cloud (.pcd/.ply)
    - Downsampling
    - Normal estimation
    - Color normalization
+   - Geometry features calculations
         ↓
    PointNet++ Model
    - Feature extraction
@@ -241,13 +242,14 @@ GPU Memory >= 8GB
 | `notebooks/train.ipynb` | Обучение модели PointNet++ |
 | `notebooks/inference.ipynb` | Инференс на новых данных |
 | `notebooks/preprocessed_dataset.ipynb` | Препроцессинг датасета |
+| `notebooks/train_inference_analytics.ipynb`| Полный pipline для классификации машин |
 
 ### Модели
 
 | Файл | Размер | Описание |
 |------|--------|----------|
-| `models/best_model.pth` | ~15 MB |Модель PointNet++ для детекции объектов в движении|
-| `models/seg_model_19.pth` | ~15 MB | Модель PointNet++ для детекции автомобилей |
+| `models/best_model.pth` | ~4 MB |Модель PointNet++ для детекции объектов в движении|
+| `models/seg_model10.pth` | ~4 MB | Модель PointNet++ для детекции автомобилей |
 
 ### Изображения
 
