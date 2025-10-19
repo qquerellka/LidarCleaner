@@ -40,15 +40,24 @@
 sudo apt-get update
 sudo apt-get install -y docker.io docker-compose
 
-# 2. Добавить текущего пользователя в группу docker
+# 2. ⚠️ ВАЖНО: Добавить текущего пользователя в группу docker
+# Это необходимо для работы Docker без sudo
 sudo usermod -aG docker $USER
 
-# 3. Перелогиниться или выполнить:
+# 3. ⚠️ ВАЖНО: Перелогиниться для применения изменений группы
+# Выберите ОДИН из способов:
+
+# Способ 1: Активировать группу в текущей сессии (временно)
 newgrp docker
 
-# 4. Проверить Docker
+# Способ 2: Перелогиниться полностью (рекомендуется)
+# Выйдите из системы и войдите заново, или выполните:
+# sudo reboot
+
+# 4. Проверить Docker (должно работать БЕЗ sudo)
 docker --version
 docker-compose --version
+docker ps  # Не должно быть ошибки "permission denied"
 
 # 5. Установка Node.js 20 (LTS)
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -57,6 +66,19 @@ sudo apt-get install -y nodejs
 # 6. Проверить Node.js
 node --version
 npm --version
+```
+
+**⚠️ Важно для Ubuntu/Debian пользователей:**
+
+Если вы видите ошибку `permission denied while trying to connect to the Docker daemon socket`, это значит что ваш пользователь не в группе `docker`. Выполните:
+
+```bash
+# Проверить группы текущего пользователя
+groups
+
+# Если "docker" нет в списке, добавьте и перелогиньтесь
+sudo usermod -aG docker $USER
+# Затем перелогиньтесь или выполните: newgrp docker
 ```
 
 ### Arch Linux
@@ -69,18 +91,43 @@ sudo pacman -S docker docker-compose
 sudo systemctl enable docker
 sudo systemctl start docker
 
-# 3. Добавить пользователя в группу docker
+# 3. ⚠️ ВАЖНО: Добавить пользователя в группу docker
+# Это необходимо для работы Docker без sudo
 sudo usermod -aG docker $USER
 
-# 4. Перелогиниться
+# 4. ⚠️ ВАЖНО: Перелогиниться для применения изменений группы
+# Выберите ОДИН из способов:
+
+# Способ 1: Активировать группу в текущей сессии (временно)
+newgrp docker
+
+# Способ 2: Перелогиниться полностью (рекомендуется)
+# Выйдите из системы и войдите заново
 
 # 5. Установка Node.js
 sudo pacman -S nodejs npm
 
-# 6. Проверить версии
+# 6. Проверить версии (должно работать БЕЗ sudo)
 docker --version
 docker-compose --version
+docker ps  # Не должно быть ошибки "permission denied"
 node --version
+```
+
+**⚠️ Важно для Arch Linux пользователей:**
+
+После добавления пользователя в группу `docker`, необходимо перелогиниться. Проверьте, что Docker работает без sudo:
+
+```bash
+# Проверить группы текущего пользователя
+groups
+
+# Убедитесь что "docker" есть в списке
+# Проверьте что Docker daemon запущен
+sudo systemctl status docker
+
+# Попробуйте выполнить команду без sudo
+docker ps
 ```
 
 ### Windows

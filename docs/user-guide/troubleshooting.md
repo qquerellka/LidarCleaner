@@ -677,6 +677,70 @@ docker ps
 
 ---
 
+### ❌ Ошибка: `permission denied while trying to connect to the Docker daemon socket`
+
+**Причина:** Ваш пользователь не входит в группу `docker`, поэтому Docker требует sudo для работы.
+
+**Решение для Ubuntu/Debian:**
+```bash
+# 1. Добавьте пользователя в группу docker
+sudo usermod -aG docker $USER
+
+# 2. Проверьте группы
+groups
+# Должна быть группа "docker" в списке
+
+# 3. Если "docker" нет в списке, перелогиньтесь
+# Способ 1: Активировать группу в текущей сессии (временно)
+newgrp docker
+
+# Способ 2: Полный перелогин (рекомендуется)
+# Выйдите из системы и войдите заново, или выполните:
+sudo reboot
+
+# 4. Проверьте что Docker работает БЕЗ sudo
+docker ps
+docker run hello-world
+```
+
+**Решение для Arch Linux:**
+```bash
+# 1. Добавьте пользователя в группу docker
+sudo usermod -aG docker $USER
+
+# 2. Убедитесь что Docker daemon запущен
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo systemctl status docker
+
+# 3. Перелогиньтесь
+newgrp docker
+# Или выйдите и войдите заново
+
+# 4. Проверьте что Docker работает БЕЗ sudo
+docker ps
+```
+
+**Проверка прав доступа:**
+```bash
+# Проверьте существование Docker socket
+ls -l /var/run/docker.sock
+# Должно быть: srw-rw---- 1 root docker
+
+# Проверьте что ваш пользователь в группе docker
+groups | grep docker
+
+# Проверьте ID группы
+getent group docker
+```
+
+**⚠️ Важно:**
+- После добавления в группу `docker`, **обязательно** нужно перелогиниться
+- Команда `newgrp docker` работает только в текущей сессии терминала
+- Для полного применения изменений используйте `logout` → `login` или `reboot`
+
+---
+
 ### Порты заняты
 
 ```bash

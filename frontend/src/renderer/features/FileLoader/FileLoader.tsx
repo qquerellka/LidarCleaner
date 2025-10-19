@@ -55,11 +55,15 @@ export default function FileLoader() {
     if (files.length === 0) return;
 
     const file = files[0];
-    const filePath = (file as any).path; // Electron exposes file.path
     const fileSizeMB = file.size / (1024 * 1024);
 
-    if (!filePath) {
-      showErrorWithDetails('Ошибка', 'Не удалось получить путь к файлу');
+    let filePath: string;
+    try {
+      // Use Electron's webUtils API to get file path (works with sandbox mode)
+      filePath = window.api.getPathForFile(file);
+    } catch (error) {
+      console.error('Failed to get file path:', error);
+      showErrorWithDetails('Ошибка', 'Не удалось получить путь к файлу. Убедитесь, что файл находится на локальном диске.');
       return;
     }
 
