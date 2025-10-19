@@ -95,11 +95,6 @@ Input Point Cloud (.pcd/.ply)
 - [Toronto-3D](https://www.kaggle.com/datasets/priteshraj10/point-cloud-lidar-toronto-3d)
 - Аугментация: rotation, scaling, jittering
 
-### Препроцессинг
-
-Используйте `ml/notebooks/preprocessed_dataset.ipynb`
-
-
 
 ## 🏋️ Обучение
 
@@ -116,6 +111,9 @@ pip install matplotlib pandas
 CUDA >= 11.0
 GPU Memory >= 8GB
 ```
+### Препроцессинг
+
+Используйте `ml/notebooks/preprocessed_dataset.ipynb`
 
 ### Шаги обучения
 
