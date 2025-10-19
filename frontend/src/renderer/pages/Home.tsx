@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { AppShell, Title, ScrollArea, Divider, ActionIcon, Tooltip, Group, useMantineColorScheme } from "@mantine/core";
+import { AppShell, Title, ScrollArea, ActionIcon, Tooltip, Group, useMantineColorScheme, Stack } from "@mantine/core";
 import { IconKeyboard, IconSun, IconMoon } from "@tabler/icons-react";
 import Scene3D from "../three/Scene3D";
 import FileLoader from "../features/FileLoader/FileLoader";
@@ -56,18 +56,16 @@ export default function Home() {
       <AppShell.Navbar p="md">
         <ScrollArea 
           style={{ height: "calc(100vh - 60px)" }}
-          scrollbarSize={0}
-          type="never"
+          scrollbarSize={6}
+          type="auto"
         >
-          <FileLoader />
-          <Divider my="md" />
-          <AutoCleanButton />
-          <Divider my="md" />
-          <EditControls />
-          <Divider my="md" />
-          <ExportButtons />
-          <Divider my="md" />
-          <SceneControls />
+          <Stack gap="md">
+            <FileLoader />
+            <AutoCleanButton />
+            <EditControls />
+            <ExportButtons />
+            <SceneControls />
+          </Stack>
         </ScrollArea>
       </AppShell.Navbar>
 
