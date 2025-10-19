@@ -76,7 +76,7 @@ Input Point Cloud (.pcd/.ply)
 **Местоположение:** `ml/models/` или `backend/cv_worker/`
 
 **Описание:**
-- Обученные модели PointNet++ для детекции объектов в движении
+- Модель PointNet++ для детекции объектов в движении
 - Архитектура: PointNet++ 
 - Входные features: 9 каналов (XYZ + RGB + Normals)
 - Выходные классы: 2 (static/dynamic)
