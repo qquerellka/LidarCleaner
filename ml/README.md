@@ -111,9 +111,6 @@ pip install matplotlib pandas
 CUDA >= 11.0
 GPU Memory >= 8GB
 ```
-### Препроцессинг
-
-Используйте `ml/notebooks/preprocessed_dataset.ipynb`
 
 ### Шаги обучения
 
