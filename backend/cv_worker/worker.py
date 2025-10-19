@@ -1,4 +1,3 @@
-# обновлённый файл обработчика (замените старый)
 import json
 import time
 import uuid
@@ -50,8 +49,8 @@ class RobustRabbitMQClient:
     try:
       parameters = pika.ConnectionParameters(
         host='rabbitmq',
-        heartbeat=7200,  # 10 минут
-        blocked_connection_timeout=300,
+        heartbeat=7200,  # 2 часа
+        blocked_connection_timeout=7200,  # 2 часа
         connection_attempts=3,
         retry_delay=5
       )
