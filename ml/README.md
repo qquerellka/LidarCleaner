@@ -5,6 +5,7 @@
 -   **Языки/ML**: `Python`, `PyTorch (PointNet++)`
 -   **Обработка данных**: `PCL`, `Open3D`, `CloudCompare`
 -   **ОС/Инструменты**: `Jupyter`, `Colab`, `Kaggle`
+  
 Документация по machine learning компонентам LidarCleaner для автоматической очистки облаков точек от динамических объектов.
 
 [📥 Посмотреть итоговые файлы и видео на гугл диске](https://drive.google.com/drive/folders/1abSbwNjoH2PJCoDO8GT03x_V9Ol97dJK?usp=sharing)
