@@ -126,7 +126,7 @@ export function registerBackendIpc() {
       const response = await api.post(`/files/upload_file`, form, {
         headers: form.getHeaders(),
         responseType: "stream",
-        timeout: 10 * 60_000,
+        timeout: 2 * 60 * 60_000, // 2 часа
         maxBodyLength: Infinity,
         maxContentLength: Infinity,
       });
